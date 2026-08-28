@@ -1,0 +1,15 @@
+[Unit]
+Description=baresip SIP user agent (plugin oma.sip)
+Documentation=https://github.com/baresip/baresip/wiki
+After=network-online.target pipewire.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/baresip -f %h/.baresip
+Restart=on-failure
+RestartSec=3
+NoNewPrivileges=true
+
+[Install]
+WantedBy=default.target

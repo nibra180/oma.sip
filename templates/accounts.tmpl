@@ -1,0 +1,7 @@
+# Conta SIP UC2B — preenchida pelo setup.sh. Este arquivo contém a senha
+# do ramal: permissão 600 obrigatória.
+#
+# Transporte UDP espelhando a configuração MicroSIP usada na empresa.
+# Migração futura para TLS+SRTP: adicionar ;transport=tls no URI e no
+# outbound, e mediaenc=srtp — depende de confirmação da UC2B.
+<sip:{{RAMAL}}@gb.quicksip.com.br>;auth_user={{AUTH_USER}};auth_pass={{SENHA}};outbound="sip:gb.quicksip.com.br";answermode=manual;regint=300;fbregint=30;audio_codecs=opus/48000/2,pcma,pcmu

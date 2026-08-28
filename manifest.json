@@ -1,0 +1,22 @@
+{
+  "schemaVersion": 1,
+  "id": "oma.sip",
+  "name": "Softfone SIP",
+  "version": "0.1.0",
+  "author": "Vinicius Galleti",
+  "license": "MIT",
+  "description": "Softfone SIP: registro, chamadas, mute e DND direto na barra, via baresip.",
+  "kinds": ["service", "bar-widget"],
+  "keepLoaded": true,
+  "entryPoints": {
+    "service": "Service.qml",
+    "barWidget": "BarWidget.qml"
+  },
+  "barWidget": {
+    "displayName": "Softfone SIP",
+    "description": "Status do ramal e controle de chamadas",
+    "category": "Comunicação",
+    "allowMultiple": false,
+    "defaultSection": "right"
+  }
+}
