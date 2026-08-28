@@ -12,6 +12,17 @@ omarchy plugin add <url-do-seu-repo-git> --enable
 bash ~/.config/omarchy/plugins/oma.sip/setup.sh   # pede ramal e senha
 ```
 
+## Desinstalação
+
+```bash
+bash ~/.config/omarchy/plugins/oma.sip/uninstall.sh   # para/desabilita o baresip e remove a unit
+omarchy plugin remove oma.sip
+```
+
+Por padrão o `uninstall.sh` preserva `~/.baresip` (config + credenciais) e o
+pacote `baresip`. Flags opcionais: `--purge` (apaga `~/.baresip`) e `--pkg`
+(remove o pacote via pacman).
+
 ## Atalhos sugeridos (~/.config/hypr/bindings.lua)
 
 ```lua
@@ -39,3 +50,7 @@ systemctl --user status baresip          # serviço SIP
 journalctl --user -u baresip -f          # log do baresip
 omarchy-shell oma.sip state          # estado do plugin (JSON)
 ```
+
+## Licença
+
+[MIT](LICENSE) — © 2026 Vinicius Galleti.
