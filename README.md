@@ -8,7 +8,7 @@ rodando como serviço do usuário; o plugin é só UI e orquestração.
 ## Instalação
 
 ```bash
-omarchy plugin add <url-do-seu-repo-git> --enable
+omarchy plugin add https://github.com/Vinicius-Galleti/oma.sip --enable
 bash ~/.config/omarchy/plugins/oma.sip/setup.sh   # pede ramal e senha
 ```
 
