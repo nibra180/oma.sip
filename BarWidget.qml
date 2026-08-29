@@ -35,7 +35,23 @@ BarWidget {
 
   property bool popupOpen: false
   property bool showAccount: false
+
+  // ---- Contrato de painel do shell: Bar.findPanelWidget exige open/close/
+  //      opened no root do widget para rotear `omarchy-shell shell
+  //      summon|hide|toggle oma.sip` e a navegação por teclado entre painéis.
+  //      Bar.requestPopout prefere closeForPopoutSwitch, e o KeyboardPanel lê
+  //      popoutSwitchClosing do owner (mesmo formato de Ui/Panel.qml).
+  readonly property bool opened: popupOpen
+  property bool popoutSwitchClosing: false
+
+  function open() { popupOpen = true }
   function close() { popupOpen = false }
+  function toggle() { popupOpen = !popupOpen }
+  function closeForPopoutSwitch() {
+    popoutSwitchClosing = true
+    close()
+    Qt.callLater(function() { popoutSwitchClosing = false })
+  }
 
   onPopupOpenChanged: {
     if (popupOpen) {
@@ -209,7 +225,7 @@ BarWidget {
             id: serverField
             width: parent.width
             foreground: root.bar.foreground
-            placeholderText: "ex.: gb.quicksip.com.br"
+            placeholderText: "ex.: sip.exemplo.com.br"
             Keys.onEscapePressed: root.popupOpen = false
           }
 
@@ -223,7 +239,7 @@ BarWidget {
             id: usernameField
             width: parent.width
             foreground: root.bar.foreground
-            placeholderText: "ex.: 2939"
+            placeholderText: "ex.: 201"
             Keys.onEscapePressed: root.popupOpen = false
           }
 

@@ -17,6 +17,8 @@ PATH = os.path.expanduser("~/.baresip/accounts")
 HEADER = (
     "# Conta SIP — gerenciada pelo plugin oma.sip (widget ou setup.sh).\n"
     "# Contém a senha do ramal: permissão 600 obrigatória.\n"
+    "# Para TLS+SRTP: adicione ;transport=tls no URI e no outbound e ;mediaenc=srtp\n"
+    "# (o widget sobrescreve esta linha ao salvar a conta).\n"
 )
 FORBIDDEN = re.compile(r'[;"<>\s]')
 

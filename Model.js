@@ -11,7 +11,7 @@ function normalizeTarget(raw) {
   return t.replace(/[^0-9+*#]/g, "")
 }
 
-// Nome curto para exibir: "sip:203@gb.quicksip.com.br" -> "203"
+// Nome curto para exibir: "sip:203@sip.exemplo.com.br" -> "203"
 function peerDisplay(uri) {
   var t = String(uri || "")
   t = t.replace(/^"?([^"<]*)"?\s*</, "$1|<")

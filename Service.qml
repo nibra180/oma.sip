@@ -36,10 +36,14 @@ Item {
   property int callSeconds: 0
   property string lastError: ""
 
-  readonly property string pluginDir: Qt.resolvedUrl(".").toString().replace("file://", "")
+  readonly property string pluginDir: decodeURIComponent(Qt.resolvedUrl(".").toString().replace(/^file:\/\//, ""))
   property int _tokenSeq: 0
   property string _pendingReginfo: ""
-  property string _debugReginfo: ""
+  // Backoff da reconexão da ponte: começa rápido (cobre o restart do baresip
+  // ao salvar conta) e cresce até 15 s enquanto o baresip estiver fora do ar.
+  readonly property int _retryMinMs: 1200
+  readonly property int _retryMaxMs: 15000
+  property int _retryMs: _retryMinMs
 
   function send(cmd, params) {
     if (!bridge.running || !baresipUp) return ""
@@ -124,6 +128,7 @@ Item {
       if (obj.bridge === "connected") {
         baresipUp = true
         lastError = ""
+        _retryMs = _retryMinMs
         if (regDetail === "conectando…" || regDetail === "reconectando…") regDetail = "verificando registro…"
         requestReginfo()
       } else {
@@ -138,7 +143,6 @@ Item {
     if (obj.response !== undefined) {
       if (obj.token && obj.token === _pendingReginfo) {
         _pendingReginfo = ""
-        _debugReginfo = String(obj.data || "")
         var info = Model.parseReginfo(obj.data)
         if (info.known) {
           if (info.count === 0) {
@@ -180,9 +184,19 @@ Item {
     switch (type) {
     case "CALL_INCOMING": {
       var who = Model.peerDisplay(ev.peerdisplay || ev.peeruri || "")
-      if (dnd || callState !== "idle") {
+      if (dnd) {
+        // Com call_max_calls 1 no config, o baresip responde 486 sozinho a uma
+        // segunda chamada; aqui só chega a primeira, que é a chamada corrente —
+        // o hangup sem id é seguro.
         send("hangup")
-        notify(dnd ? "Chamada recusada (DND)" : "Chamada recusada (ocupado)", who)
+        notify("Chamada recusada (DND)", who)
+        return
+      }
+      if (callState !== "idle") {
+        // Defensivo (config antigo sem call_max_calls 1): recusa pelo id do
+        // evento para não derrubar a chamada em andamento.
+        send("hangup", ev.id ? String(ev.id) : "")
+        notify("Chamada recusada (ocupado)", who)
         return
       }
       callState = "incoming"
@@ -228,15 +242,17 @@ Item {
       root.baresipUp = false
       root.registered = false
       if (root.regDetail !== "reiniciando baresip…") root.regDetail = "reconectando…"
+      retry.interval = root._retryMs
       retry.start()
+      root._retryMs = Math.min(root._retryMs * 2, root._retryMaxMs)
     }
   }
 
   // A ponte cai junto com o baresip (ex.: restart ao salvar conta);
-  // religa rápido para não perder a janela dos eventos de registro.
+  // religa rápido para não perder a janela dos eventos de registro e vai
+  // espaçando as tentativas se o baresip continuar fora do ar.
   Timer {
     id: retry
-    interval: 1200
     onTriggered: bridge.running = true
   }
 
@@ -331,8 +347,7 @@ Item {
         muted: root.muted,
         dnd: root.dnd,
         seconds: root.callSeconds,
-        lastError: root.lastError,
-        debugReginfo: root._debugReginfo
+        lastError: root.lastError
       })
     }
   }

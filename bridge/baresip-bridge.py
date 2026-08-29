@@ -51,7 +51,9 @@ def main():
     except OSError as exc:
         emit({"bridge": "error", "detail": str(exc)})
         return 1
-    sock.setblocking(False)
+    # Bloqueante com timeout (e não non-blocking): o select já garante que
+    # recv não bloqueia, e sendall nunca falha por envio parcial.
+    sock.settimeout(5)
     emit({"bridge": "connected"})
 
     buf = b""
@@ -70,7 +72,7 @@ def main():
         if sock in ready:
             try:
                 chunk = sock.recv(65536)
-            except (BlockingIOError, InterruptedError):
+            except (socket.timeout, InterruptedError):
                 continue
             if not chunk:
                 emit({"bridge": "closed"})
