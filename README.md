@@ -1,5 +1,8 @@
 # SIP Softphone for Omarchy (oma.sip)
 
+<img width="376" height="422" alt="image" src="https://github.com/user-attachments/assets/84e954b4-d47d-4574-9414-e8cad84986c3" /> <img width="374" height="421" alt="image" src="https://github.com/user-attachments/assets/ef3150dc-d129-466d-b222-5c088d58e21f" />
+
+
 A softphone built into the Omarchy 4+ bar: SIP registration, dialing,
 answer/reject, mute, DND and audio device selection — from the widget or via
 keyboard shortcuts. Audio/SIP is handled by
