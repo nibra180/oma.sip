@@ -1,92 +1,116 @@
-# Softfone SIP para Omarchy (oma.sip)
+# SIP Softphone for Omarchy (oma.sip)
 
-Softfone integrado à barra do Omarchy 4+: registro no PABX SIP, discagem,
-atender/recusar, mute e DND — tudo pelo widget ou por atalhos de teclado.
-O áudio/SIP fica por conta do [baresip](https://github.com/baresip/baresip)
-rodando como serviço do usuário; o plugin é só UI e orquestração.
+A softphone built into the Omarchy 4+ bar: SIP registration, dialing,
+answer/reject, mute, DND and audio device selection — from the widget or via
+keyboard shortcuts. Audio/SIP is handled by
+[baresip](https://github.com/baresip/baresip) running as a user service; the
+plugin is UI and orchestration only.
 
-## Requisitos
+The UI follows the system language: English by default, Brazilian Portuguese
+on `pt_*` locales.
 
-- Omarchy 4.0 ou superior (omarchy-shell)
-- `baresip` (o `setup.sh` oferece instalar via `pacman`)
-- `python3` e `jq` (já presentes no Omarchy)
-- PipeWire para áudio (padrão do Omarchy)
+## Requirements
 
-## Instalação
+- Omarchy 4.0 or later (omarchy-shell)
+- `baresip` (`setup.sh` offers to install it via `pacman`)
+- `python3` and `jq` (already present on Omarchy)
+- PipeWire for audio (Omarchy default)
+
+## Install
 
 ```bash
 omarchy plugin add https://github.com/Vinicius-Galleti/oma.sip --enable
 bash ~/.config/omarchy/plugins/oma.sip/setup.sh
 ```
 
-O `omarchy plugin add` só clona e habilita o plugin — ele nunca executa código
-do plugin. O `setup.sh` é um passo manual que:
+`omarchy plugin add` only clones and enables the plugin — it never runs
+plugin code. `setup.sh` is a manual step that:
 
-1. instala o pacote `baresip` se faltar (pede confirmação e `sudo`);
-2. cria `~/.baresip/config` a partir de `templates/config.tmpl`;
-3. pergunta servidor, ramal e senha e grava `~/.baresip/accounts` com
-   permissão `600` (a senha nunca passa por argumentos de processo);
-4. instala e inicia a unit `baresip.service` em `systemctl --user`.
+1. installs the `baresip` package if missing (asks before using `sudo`);
+2. creates `~/.baresip/config` from `templates/config.tmpl`;
+3. asks for server, extension and password and writes `~/.baresip/accounts`
+   with `600` permissions (the password never goes through process argv);
+4. installs and starts the `baresip.service` unit under `systemctl --user`.
 
-A conta também pode ser criada/alterada depois pela engrenagem do widget.
+The account can also be created/changed later from the widget's gear button.
 
-## Desinstalação
+## Uninstall
 
 ```bash
-bash ~/.config/omarchy/plugins/oma.sip/uninstall.sh   # para/desabilita o baresip e remove a unit
+bash ~/.config/omarchy/plugins/oma.sip/uninstall.sh   # stops baresip and removes the unit
 omarchy plugin remove oma.sip
 ```
 
-Por padrão o `uninstall.sh` preserva `~/.baresip` (config + credenciais) e o
-pacote `baresip`. Flags opcionais: `--purge` (apaga `~/.baresip`) e `--pkg`
-(remove o pacote via pacman).
+By default `uninstall.sh` preserves `~/.baresip` (config + credentials) and
+the `baresip` package. Optional flags: `--purge` (delete `~/.baresip`) and
+`--pkg` (remove the package via pacman).
 
-## Atalhos sugeridos (~/.config/hypr/bindings.lua)
+## Suggested keybindings (~/.config/hypr/bindings.lua)
 
 ```lua
-o.bind("SUPER", "F8",  "exec", "omarchy-shell shell toggle oma.sip '{}'")  -- abre/fecha o discador
+o.bind("SUPER", "F8",  "exec", "omarchy-shell shell toggle oma.sip '{}'")  -- open/close the dialer
 o.bind("SUPER", "F9",  "exec", "omarchy-shell oma.sip answer")
 o.bind("SUPER", "F10", "exec", "omarchy-shell oma.sip hangup")
 o.bind("SUPER", "F11", "exec", "omarchy-shell oma.sip toggleMute")
 ```
 
-Discar por linha de comando: `omarchy-shell oma.sip dial 203`
+Dial from the command line: `omarchy-shell oma.sip dial 203`
 
-Métodos IPC (`omarchy-shell oma.sip <método>`): `dial <alvo>`, `answer`,
-`hangup`, `toggleMute`, `toggleDnd`, `reregister`, `state`.
+IPC methods (`omarchy-shell oma.sip <method>`): `dial <target>`, `answer`,
+`hangup`, `toggleMute`, `toggleDnd`, `reregister`, `setAudioOutput <node>`,
+`setAudioInput <node>`, `state`.
 
-## Segurança
+## Audio devices
 
-- O controle do baresip (`ctrl_tcp`, sem autenticação) escuta só em
-  `127.0.0.1:4444` — nunca exponha essa porta fora do localhost.
-- A senha do ramal fica apenas em `~/.baresip/accounts` (`600`); ela não
-  chega ao QML nem aparece em argumentos de processo.
-- Por padrão o transporte SIP é UDP sem criptografia. Para TLS+SRTP, edite
-  `~/.baresip/accounts` (`;transport=tls` no URI e no `outbound`,
+The 󰓃 button in the popout selects the **output** (speaker/headset) and
+**input** (microphone) among the PipeWire nodes. The choice:
+
+- is applied immediately, even mid-call (baresip `auplay`/`ausrc`; the
+  ringtone follows the output);
+- is saved to `~/.baresip/config` (`audio_player`, `audio_alert`,
+  `audio_source` as `pipewire,<node.name>`), so it survives restarts;
+- "System default" lets baresip follow the PipeWire/WirePlumber default
+  device.
+
+From the command line: `omarchy-shell oma.sip setAudioOutput <node.name>`
+(names from `wpctl status` / `pw-cli ls Node`; empty = default).
+
+## Security
+
+- The baresip control channel (`ctrl_tcp`, unauthenticated) listens only on
+  `127.0.0.1:4444` — never expose that port outside localhost.
+- The extension password lives only in `~/.baresip/accounts` (`600`); it
+  never reaches QML nor process arguments.
+- SIP transport defaults to unencrypted UDP. For TLS+SRTP, edit
+  `~/.baresip/accounts` (`;transport=tls` on the URI and `outbound`,
   `;mediaenc=srtp`).
-- Plugins do Omarchy rodam sem sandbox dentro do `omarchy-shell`; revise o
-  código antes de habilitar.
+- Omarchy plugins run unsandboxed inside `omarchy-shell`; review the code
+  before enabling.
 
-## Arquitetura (resumo)
+## Architecture (summary)
 
-- `baresip` (systemd --user) fala SIP/RTP com o seu PABX e expõe controle
-  JSON local em `127.0.0.1:4444` (`ctrl_tcp`).
-- `Service.qml` é o único cliente do `ctrl_tcp`, via
-  `bridge/baresip-bridge.py` (netstring ↔ NDJSON, reconexão com backoff), e
-  mantém a máquina de estados de registro/chamada. Uma chamada por vez
-  (`call_max_calls 1`): uma segunda chamada recebida ganha 486 Busy.
-- `BarWidget.qml` mostra o estado e abre o popout com discador/controles.
-- `bridge/account-tool.py` lê/grava `~/.baresip/accounts` (usado pelo widget
-  e pelo `setup.sh`).
+- `baresip` (systemd --user) speaks SIP/RTP to your PBX and exposes local
+  JSON control on `127.0.0.1:4444` (`ctrl_tcp`).
+- `Service.qml` is the only `ctrl_tcp` client, via
+  `bridge/baresip-bridge.py` (netstring ↔ NDJSON, reconnection with
+  backoff), and owns the registration/call state machine. One call at a
+  time (`call_max_calls 1`): a second incoming call gets 486 Busy.
+- `BarWidget.qml` shows the state and opens the popout with the dialer and
+  controls.
+- `bridge/account-tool.py` reads/writes `~/.baresip/accounts` (used by the
+  widget and by `setup.sh`); `bridge/config-tool.py` persists the audio
+  devices in `~/.baresip/config`.
+- UI strings live in `Model.js` (`tr()`), chosen by `Qt.locale()`; the
+  Python/bash helpers pick the language from `LANG`/`LC_MESSAGES`.
 
-## Diagnóstico
+## Diagnostics
 
 ```bash
-systemctl --user status baresip          # serviço SIP
-journalctl --user -u baresip -f          # log do baresip
-omarchy-shell oma.sip state              # estado do plugin (JSON)
+systemctl --user status baresip          # SIP service
+journalctl --user -u baresip -f          # baresip log
+omarchy-shell oma.sip state              # plugin state (JSON)
 ```
 
-## Licença
+## License
 
 [MIT](LICENSE) — © 2026 Vinicius Galleti.

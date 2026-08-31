@@ -1,11 +1,11 @@
 {
   "schemaVersion": 1,
   "id": "oma.sip",
-  "name": "Softfone SIP",
-  "version": "0.1.0",
+  "name": "SIP Softphone",
+  "version": "0.2.0",
   "author": "Vinicius Galleti",
   "license": "MIT",
-  "description": "Softfone SIP: registro, chamadas, mute e DND direto na barra, via baresip.",
+  "description": "SIP softphone in the bar: registration, calls, mute, DND and audio device selection, powered by baresip. UI in English or pt-BR (follows system locale).",
   "kinds": ["service", "bar-widget"],
   "keepLoaded": true,
   "entryPoints": {
@@ -13,9 +13,9 @@
     "barWidget": "BarWidget.qml"
   },
   "barWidget": {
-    "displayName": "Softfone SIP",
-    "description": "Status do ramal e controle de chamadas",
-    "category": "Comunicação",
+    "displayName": "SIP Softphone",
+    "description": "Extension status and call controls",
+    "category": "Communication",
     "allowMultiple": false,
     "defaultSection": "right"
   }

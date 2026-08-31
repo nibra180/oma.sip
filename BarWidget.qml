@@ -1,4 +1,5 @@
 import QtQuick
+import Quickshell.Services.Pipewire
 import qs.Ui
 import qs.Commons
 import "Model.js" as Model
@@ -35,6 +36,32 @@ BarWidget {
 
   property bool popupOpen: false
   property bool showAccount: false
+  property bool showAudio: false
+  // Discador/controles/DND só aparecem quando nenhum sub-painel está aberto.
+  readonly property bool mainView: !showAccount && !showAudio
+
+  // Dispositivos PipeWire, com o mesmo filtro do painel de áudio built-in.
+  // Só name/description/isSink/isStream/audio são lidos — node.properties não
+  // (instável enquanto streams de captura aparecem).
+  readonly property var pwNodes: Pipewire.nodes ? Pipewire.nodes.values : []
+  readonly property var outputNodes: {
+    var list = []
+    for (var i = 0; i < pwNodes.length; i++) {
+      var n = pwNodes[i]
+      if (n && n.isSink && !n.isStream) list.push(n)
+    }
+    return list
+  }
+  readonly property var inputNodes: {
+    var list = []
+    for (var i = 0; i < pwNodes.length; i++) {
+      var n = pwNodes[i]
+      if (!n || n.isSink || n.isStream) continue
+      if (String(n.name || "") === "quickshell") continue
+      if (n.audio || /Source/.test(String(n.type || ""))) list.push(n)
+    }
+    return list
+  }
 
   // ---- Contrato de painel do shell: Bar.findPanelWidget exige open/close/
   //      opened no root do widget para rotear `omarchy-shell shell
@@ -61,7 +88,11 @@ BarWidget {
     focusPreferred()
   }
   onShowAccountChanged: {
-    if (showAccount) fillAccountForm()
+    if (showAccount) { showAudio = false; fillAccountForm() }
+    focusPreferred()
+  }
+  onShowAudioChanged: {
+    if (showAudio) showAccount = false
     focusPreferred()
   }
 
@@ -141,8 +172,8 @@ BarWidget {
     cursorShape: Qt.PointingHandCursor
     onClicked: root.popupOpen = !root.popupOpen
     onEntered: if (root.bar) root.bar.showTooltip(root, root.registered
-      ? "Softfone: " + (root.sip ? root.sip.regDetail : "")
-      : "Softfone sem registro" + (root.sip && root.sip.regDetail ? " · " + root.sip.regDetail : ""))
+      ? Model.tr("app_name") + ": " + (root.sip ? root.sip.regDetail : "")
+      : Model.tr("no_registration_tip") + (root.sip && root.sip.regDetail ? " · " + root.sip.regDetail : ""))
     onExited: if (root.bar) root.bar.hideTooltip(root)
   }
 
@@ -171,6 +202,7 @@ BarWidget {
       anchors.fill: parent
       blocked: serverField.activeFocus || usernameField.activeFocus || domainField.activeFocus
         || loginField.activeFocus || passwordField.activeFocus || dialField.activeFocus
+        || outputDropdown.popupOpen || inputDropdown.popupOpen
       onCloseRequested: root.popupOpen = false
       // Se o foco cair no keyCatcher com um campo visível (ex.: clique em área
       // vazia), a primeira tecla devolve o foco ao campo em vez de sumir.
@@ -186,12 +218,12 @@ BarWidget {
           spacing: Style.space(6)
 
           Text {
-            width: parent.width - gearButton.width - Style.space(6)
+            width: parent.width - gearButton.width - audioButton.width - Style.space(12)
             anchors.verticalCenter: parent.verticalCenter
             text: {
-              if (!root.up) return "baresip fora do ar"
-              if (!root.registered) return root.sip ? root.sip.regDetail : "sem registro"
-              return "Registrado: " + root.sip.regDetail
+              if (!root.up) return Model.tr("baresip_down")
+              if (!root.registered) return root.sip ? root.sip.regDetail : Model.tr("no_registration")
+              return Model.tr("registered_prefix") + root.sip.regDetail
             }
             color: root.registered ? root.bar.foreground : Qt.darker(root.bar.foreground, 1.4)
             font.family: root.bar.fontFamily
@@ -200,12 +232,61 @@ BarWidget {
           }
 
           Button {
+            id: audioButton
+            iconText: "󰓃"
+            tooltipText: Model.tr("audio_devices")
+            foreground: root.bar.foreground
+            selected: root.showAudio
+            onClicked: root.showAudio = !root.showAudio
+          }
+
+          Button {
             id: gearButton
             iconText: "󰒓"
-            tooltipText: "Configurar conta SIP"
+            tooltipText: Model.tr("configure_account")
             foreground: root.bar.foreground
             selected: root.showAccount
             onClicked: root.showAccount = !root.showAccount
+          }
+        }
+
+        // ---- Áudio (saída / entrada) ----
+        Column {
+          width: parent.width
+          spacing: Style.space(8)
+          visible: root.showAudio
+
+          Dropdown {
+            id: outputDropdown
+            width: parent.width
+            label: Model.tr("audio_output_label")
+            fontFamily: root.bar.fontFamily
+            foreground: root.bar.foreground
+            accent: Color.accent
+            options: Model.deviceOptions(root.outputNodes, root.sip ? root.sip.audioOutput : "")
+            value: root.sip ? root.sip.audioOutput : ""
+            onChanged: function(v) { if (root.sip) root.sip.setAudioOutput(v) }
+          }
+
+          Dropdown {
+            id: inputDropdown
+            width: parent.width
+            label: Model.tr("audio_input_label")
+            fontFamily: root.bar.fontFamily
+            foreground: root.bar.foreground
+            accent: Color.accent
+            options: Model.deviceOptions(root.inputNodes, root.sip ? root.sip.audioInput : "")
+            value: root.sip ? root.sip.audioInput : ""
+            onChanged: function(v) { if (root.sip) root.sip.setAudioInput(v) }
+          }
+
+          Text {
+            width: parent.width
+            text: Model.tr("audio_hint")
+            wrapMode: Text.Wrap
+            color: Qt.darker(root.bar.foreground, 1.5)
+            font.family: root.bar.fontFamily
+            font.pixelSize: Style.font.caption
           }
         }
 
@@ -216,7 +297,7 @@ BarWidget {
           visible: root.showAccount
 
           Text {
-            text: "Servidor SIP"
+            text: Model.tr("sip_server")
             color: Qt.darker(root.bar.foreground, 1.3)
             font.family: root.bar.fontFamily
             font.pixelSize: Style.font.caption
@@ -225,12 +306,12 @@ BarWidget {
             id: serverField
             width: parent.width
             foreground: root.bar.foreground
-            placeholderText: "ex.: sip.exemplo.com.br"
+            placeholderText: Model.tr("sip_server_ph")
             Keys.onEscapePressed: root.popupOpen = false
           }
 
           Text {
-            text: "Usuário (ramal)"
+            text: Model.tr("username_ext")
             color: Qt.darker(root.bar.foreground, 1.3)
             font.family: root.bar.fontFamily
             font.pixelSize: Style.font.caption
@@ -239,12 +320,12 @@ BarWidget {
             id: usernameField
             width: parent.width
             foreground: root.bar.foreground
-            placeholderText: "ex.: 201"
+            placeholderText: Model.tr("username_ph")
             Keys.onEscapePressed: root.popupOpen = false
           }
 
           Text {
-            text: "Domínio (vazio = servidor)"
+            text: Model.tr("domain_label")
             color: Qt.darker(root.bar.foreground, 1.3)
             font.family: root.bar.fontFamily
             font.pixelSize: Style.font.caption
@@ -253,12 +334,12 @@ BarWidget {
             id: domainField
             width: parent.width
             foreground: root.bar.foreground
-            placeholderText: "igual ao servidor"
+            placeholderText: Model.tr("domain_ph")
             Keys.onEscapePressed: root.popupOpen = false
           }
 
           Text {
-            text: "Login de autenticação (vazio = usuário)"
+            text: Model.tr("login_label")
             color: Qt.darker(root.bar.foreground, 1.3)
             font.family: root.bar.fontFamily
             font.pixelSize: Style.font.caption
@@ -267,12 +348,12 @@ BarWidget {
             id: loginField
             width: parent.width
             foreground: root.bar.foreground
-            placeholderText: "igual ao usuário"
+            placeholderText: Model.tr("login_ph")
             Keys.onEscapePressed: root.popupOpen = false
           }
 
           Text {
-            text: "Senha"
+            text: Model.tr("password")
             color: Qt.darker(root.bar.foreground, 1.3)
             font.family: root.bar.fontFamily
             font.pixelSize: Style.font.caption
@@ -282,13 +363,13 @@ BarWidget {
             width: parent.width
             foreground: root.bar.foreground
             password: true
-            placeholderText: root.sip && root.sip.accountHasPassword ? "•••• (vazio mantém a atual)" : "obrigatória"
+            placeholderText: Model.tr(root.sip && root.sip.accountHasPassword ? "password_keep_ph" : "password_required_ph")
             Keys.onEscapePressed: root.popupOpen = false
           }
 
           Button {
             id: saveButton
-            text: root.sip && root.sip.savingAccount ? "Salvando…" : "Salvar e registrar"
+            text: Model.tr(root.sip && root.sip.savingAccount ? "saving_btn" : "save_register")
             foreground: root.bar.foreground
             accent: Color.accent
             bordered: true
@@ -304,7 +385,7 @@ BarWidget {
 
           Text {
             width: parent.width
-            text: "Salvar grava a conta e reinicia o baresip."
+            text: Model.tr("save_note")
             wrapMode: Text.Wrap
             color: Qt.darker(root.bar.foreground, 1.5)
             font.family: root.bar.fontFamily
@@ -314,11 +395,11 @@ BarWidget {
 
         Text {
           width: parent.width
-          visible: !root.showAccount && root.callState !== "idle"
+          visible: root.mainView && root.callState !== "idle"
           text: {
-            if (root.callState === "incoming") return "Recebendo: " + root.peer
-            if (root.callState === "outgoing") return "Chamando: " + root.peer
-            return "Em chamada: " + root.peer + " · " + Model.fmtDuration(root.callSeconds)
+            if (root.callState === "incoming") return Model.tr("incoming_prefix") + root.peer
+            if (root.callState === "outgoing") return Model.tr("calling_prefix") + root.peer
+            return Model.tr("in_call_prefix") + root.peer + " · " + Model.fmtDuration(root.callSeconds)
           }
           color: Color.accent
           font.family: root.bar.fontFamily
@@ -330,13 +411,13 @@ BarWidget {
         Row {
           width: parent.width
           spacing: Style.space(6)
-          visible: !root.showAccount && root.callState === "idle"
+          visible: root.mainView && root.callState === "idle"
 
           TextField {
             id: dialField
             width: parent.width - dialButton.width - Style.space(6)
             foreground: root.bar.foreground
-            placeholderText: "ramal ou usuario@host"
+            placeholderText: Model.tr("dial_ph")
             enabled: root.registered
             onAccepted: dialButton.doDial()
             Keys.onEscapePressed: root.popupOpen = false
@@ -345,7 +426,7 @@ BarWidget {
           Button {
             id: dialButton
             iconText: "󰏲"
-            text: "Ligar"
+            text: Model.tr("call_btn")
             foreground: root.bar.foreground
             enabled: root.registered && dialField.text.trim() !== ""
             function doDial() {
@@ -360,12 +441,12 @@ BarWidget {
         Row {
           anchors.horizontalCenter: parent.horizontalCenter
           spacing: Style.space(6)
-          visible: !root.showAccount && root.callState !== "idle"
+          visible: root.mainView && root.callState !== "idle"
 
           Button {
             visible: root.callState === "incoming"
             iconText: "󰏲"
-            text: "Atender"
+            text: Model.tr("answer_btn")
             foreground: root.bar.foreground
             accent: Color.accent
             onClicked: if (root.sip) root.sip.answer()
@@ -373,7 +454,7 @@ BarWidget {
 
           Button {
             iconText: "󰍭"
-            text: root.muted ? "Ativar som" : "Mudo"
+            text: Model.tr(root.muted ? "unmute_btn" : "mute_btn")
             visible: root.callState === "active"
             selected: root.muted
             foreground: root.bar.foreground
@@ -382,21 +463,21 @@ BarWidget {
 
           Button {
             iconText: "󰏷"
-            text: root.callState === "incoming" ? "Recusar" : "Desligar"
+            text: Model.tr(root.callState === "incoming" ? "reject_btn" : "hangup_btn")
             foreground: root.bar.foreground
             onClicked: if (root.sip) root.sip.hangup()
           }
         }
 
         PanelSeparator {
-          visible: !root.showAccount
+          visible: root.mainView
           foreground: root.bar.foreground
         }
 
         Row {
           width: parent.width
           spacing: Style.space(8)
-          visible: !root.showAccount
+          visible: root.mainView
 
           ToggleSwitch {
             id: dndToggle
@@ -409,7 +490,7 @@ BarWidget {
 
           Text {
             anchors.verticalCenter: parent.verticalCenter
-            text: "Não perturbe"
+            text: Model.tr("dnd_label")
             color: root.bar.foreground
             font.family: root.bar.fontFamily
             font.pixelSize: Style.font.bodySmall

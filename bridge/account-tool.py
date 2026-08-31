@@ -6,6 +6,8 @@ read : imprime JSON {configured, username, domain, server, login, hasPassword}
 write: lê UMA linha JSON do stdin {server, username, domain, login, password}
        (senha via stdin para nunca aparecer em argv/processos). Senha vazia
        mantém a atual. Grava com permissão 0600 e imprime {"ok": true}.
+
+Mensagens seguem o idioma do sistema (LANG/LC_MESSAGES): en padrão, pt-BR.
 """
 
 import json
@@ -14,13 +16,27 @@ import re
 import sys
 
 PATH = os.path.expanduser("~/.baresip/accounts")
-HEADER = (
+FORBIDDEN = re.compile(r'[;"<>\s]')
+
+_PT = os.environ.get(
+    "LC_ALL", os.environ.get("LC_MESSAGES", os.environ.get("LANG", ""))
+).startswith("pt")
+
+
+def tr(en, pt):
+    return pt if _PT else en
+
+
+HEADER = tr(
+    "# SIP account — managed by the oma.sip plugin (widget or setup.sh).\n"
+    "# Contains the extension password: 600 permission required.\n"
+    "# For TLS+SRTP: add ;transport=tls to the URI and outbound, and ;mediaenc=srtp\n"
+    "# (the widget overwrites this line when saving the account).\n",
     "# Conta SIP — gerenciada pelo plugin oma.sip (widget ou setup.sh).\n"
     "# Contém a senha do ramal: permissão 600 obrigatória.\n"
     "# Para TLS+SRTP: adicione ;transport=tls no URI e no outbound e ;mediaenc=srtp\n"
-    "# (o widget sobrescreve esta linha ao salvar a conta).\n"
+    "# (o widget sobrescreve esta linha ao salvar a conta).\n",
 )
-FORBIDDEN = re.compile(r'[;"<>\s]')
 
 
 def parse():
@@ -67,12 +83,16 @@ def do_read():
     return 0
 
 
+def fail(en, pt):
+    print(json.dumps({"ok": False, "error": tr(en, pt)}))
+    return 1
+
+
 def do_write():
     try:
         req = json.loads(sys.stdin.readline())
     except ValueError:
-        print(json.dumps({"ok": False, "error": "JSON inválido"}))
-        return 1
+        return fail("invalid JSON", "JSON inválido")
 
     _, cur_pass = parse()
     server = (req.get("server") or "").strip()
@@ -84,17 +104,22 @@ def do_write():
         password = cur_pass
 
     if not server or not username:
-        print(json.dumps({"ok": False, "error": "servidor e usuário são obrigatórios"}))
-        return 1
+        return fail("server and username are required",
+                    "servidor e usuário são obrigatórios")
     if password == "":
-        print(json.dumps({"ok": False, "error": "defina a senha (ainda não há uma salva)"}))
-        return 1
-    for name, value in (("servidor", server), ("usuário", username),
-                        ("domínio", domain), ("login", login), ("senha", password)):
+        return fail("set a password (none saved yet)",
+                    "defina a senha (ainda não há uma salva)")
+    fields = (
+        (tr("server", "servidor"), server),
+        (tr("username", "usuário"), username),
+        (tr("domain", "domínio"), domain),
+        (tr("login", "login"), login),
+        (tr("password", "senha"), password),
+    )
+    for name, value in fields:
         if FORBIDDEN.search(value):
-            print(json.dumps({"ok": False,
-                              "error": name + " contém caractere não suportado (; \" < > ou espaço)"}))
-            return 1
+            return fail(name + ' has an unsupported character (; " < > or space)',
+                        name + ' contém caractere não suportado (; " < > ou espaço)')
 
     line = ('<sip:%s@%s>;auth_user=%s;auth_pass=%s;outbound="sip:%s";'
             "answermode=manual;regint=300;fbregint=30;"
