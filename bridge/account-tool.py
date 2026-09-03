@@ -1,22 +1,35 @@
 #!/usr/bin/env python3
 """Lê/grava ~/.baresip/accounts (uma conta) para o plugin oma.sip.
 
-read : imprime JSON {configured, username, domain, server, login, hasPassword}
-       — a senha NUNCA sai deste script.
-write: lê UMA linha JSON do stdin {server, username, domain, login, password}
-       (senha via stdin para nunca aparecer em argv/processos). Senha vazia
-       mantém a atual. Grava com permissão 0600 e imprime {"ok": true}.
+read : imprime JSON {configured, username, domain, server, login, hasPassword,
+       secure} — a senha NUNCA sai deste script.
+write: lê UMA linha JSON do stdin {server, username, domain, login, password,
+       secure} (senha via stdin para nunca aparecer em argv/processos). Senha
+       vazia mantém a atual. `secure` (padrão true) grava a conta com
+       transport=tls + mediaenc=srtp; false é opt-out explícito para UDP.
+
+Gravação endurecida: ~/.baresip com 0700; lock exclusivo (flock) serializando
+escritores concorrentes (widget + setup.sh); temp com nome aleatório
+(mkstemp, 0600) no mesmo diretório; fsync no arquivo e no diretório;
+os.replace atômico; leitura com O_NOFOLLOW (recusa symlink). Entrada
+limitada (linha <= 8 KiB, campos <= 255).
 
 Mensagens seguem o idioma do sistema (LANG/LC_MESSAGES): en padrão, pt-BR.
 """
 
+import fcntl
 import json
 import os
 import re
 import sys
+import tempfile
 
-PATH = os.path.expanduser("~/.baresip/accounts")
-FORBIDDEN = re.compile(r'[;"<>\s]')
+BARESIP_DIR = os.path.expanduser("~/.baresip")
+PATH = os.path.join(BARESIP_DIR, "accounts")
+LOCK = os.path.join(BARESIP_DIR, ".oma.sip.lock")
+FORBIDDEN = re.compile(r'[;"<>\s\x00-\x1f]')
+MAX_LINE = 8192
+MAX_FIELD = 255
 
 _PT = os.environ.get(
     "LC_ALL", os.environ.get("LC_MESSAGES", os.environ.get("LANG", ""))
@@ -30,13 +43,51 @@ def tr(en, pt):
 HEADER = tr(
     "# SIP account — managed by the oma.sip plugin (widget or setup.sh).\n"
     "# Contains the extension password: 600 permission required.\n"
-    "# For TLS+SRTP: add ;transport=tls to the URI and outbound, and ;mediaenc=srtp\n"
+    "# Default is TLS + SRTP; unencrypted UDP only by explicit choice\n"
     "# (the widget overwrites this line when saving the account).\n",
     "# Conta SIP — gerenciada pelo plugin oma.sip (widget ou setup.sh).\n"
     "# Contém a senha do ramal: permissão 600 obrigatória.\n"
-    "# Para TLS+SRTP: adicione ;transport=tls no URI e no outbound e ;mediaenc=srtp\n"
+    "# Padrão é TLS + SRTP; UDP sem criptografia só por escolha explícita\n"
     "# (o widget sobrescreve esta linha ao salvar a conta).\n",
 )
+
+
+def secure_dir():
+    os.makedirs(BARESIP_DIR, mode=0o700, exist_ok=True)
+    os.chmod(BARESIP_DIR, 0o700)
+
+
+def lock_exclusive():
+    fd = os.open(LOCK, os.O_WRONLY | os.O_CREAT | os.O_CLOEXEC, 0o600)
+    fcntl.flock(fd, fcntl.LOCK_EX)
+    return fd
+
+
+def open_nofollow(path):
+    fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC)
+    return os.fdopen(fd, encoding="utf-8")
+
+
+def atomic_write(path, data, mode):
+    fd, tmp = tempfile.mkstemp(prefix=".accounts.", dir=BARESIP_DIR)
+    try:
+        os.fchmod(fd, mode)
+        with os.fdopen(fd, "w", encoding="utf-8") as fh:
+            fh.write(data)
+            fh.flush()
+            os.fsync(fh.fileno())
+        os.replace(tmp, path)
+        dfd = os.open(BARESIP_DIR, os.O_RDONLY | os.O_DIRECTORY)
+        try:
+            os.fsync(dfd)
+        finally:
+            os.close(dfd)
+    except BaseException:
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
+        raise
 
 
 def parse():
@@ -47,20 +98,23 @@ def parse():
         "server": "",
         "login": "",
         "hasPassword": False,
+        "secure": True,
     }
     cur_pass = ""
     try:
-        with open(PATH, encoding="utf-8") as fh:
+        with open_nofollow(PATH) as fh:
             for line in fh:
                 line = line.strip()
                 if not line or line.startswith("#"):
                     continue
-                m = re.search(r"<sips?:([^@>]+)@([^;>]+)>", line)
+                m = re.search(r"<sips?:([^@>]+)@([^;>]+)", line)
                 if not m:
                     continue
                 info["configured"] = True
                 info["username"] = m.group(1)
                 info["domain"] = m.group(2)
+                info["secure"] = ("transport=tls" in line
+                                  and "mediaenc=srtp" in line)
                 pm = re.search(r"auth_pass=([^;]*)", line)
                 if pm:
                     cur_pass = pm.group(1)
@@ -68,11 +122,14 @@ def parse():
                 lm = re.search(r"auth_user=([^;]*)", line)
                 if lm:
                     info["login"] = lm.group(1)
-                sm = re.search(r'outbound="sips?:([^";]+)"', line)
+                sm = re.search(r'outbound="sips?:([^";]+)', line)
                 if sm:
                     info["server"] = sm.group(1)
                 break
     except FileNotFoundError:
+        pass
+    except OSError:
+        # symlink (ELOOP) ou outra falha de leitura: trata como não configurado
         pass
     return info, cur_pass
 
@@ -89,46 +146,67 @@ def fail(en, pt):
 
 
 def do_write():
+    raw = sys.stdin.buffer.readline(MAX_LINE + 1)
+    if len(raw) > MAX_LINE:
+        return fail("request too long", "requisição longa demais")
     try:
-        req = json.loads(sys.stdin.readline())
+        req = json.loads(raw)
     except ValueError:
         return fail("invalid JSON", "JSON inválido")
+    if not isinstance(req, dict):
+        return fail("invalid JSON", "JSON inválido")
 
-    _, cur_pass = parse()
-    server = (req.get("server") or "").strip()
-    username = (req.get("username") or "").strip()
-    domain = (req.get("domain") or "").strip() or server
-    login = (req.get("login") or "").strip() or username
-    password = req.get("password") or ""
-    if password == "":
-        password = cur_pass
+    secure_dir()
+    lock_fd = lock_exclusive()
+    try:
+        if os.path.islink(PATH):
+            return fail("~/.baresip/accounts is a symlink — refusing to write",
+                        "~/.baresip/accounts é um symlink — gravação recusada")
+        _, cur_pass = parse()
+        server = (req.get("server") or "").strip()
+        username = (req.get("username") or "").strip()
+        domain = (req.get("domain") or "").strip() or server
+        login = (req.get("login") or "").strip() or username
+        password = req.get("password") or ""
+        secure = req.get("secure")
+        secure = True if secure is None else bool(secure)
+        if password == "":
+            password = cur_pass
 
-    if not server or not username:
-        return fail("server and username are required",
-                    "servidor e usuário são obrigatórios")
-    if password == "":
-        return fail("set a password (none saved yet)",
-                    "defina a senha (ainda não há uma salva)")
-    fields = (
-        (tr("server", "servidor"), server),
-        (tr("username", "usuário"), username),
-        (tr("domain", "domínio"), domain),
-        (tr("login", "login"), login),
-        (tr("password", "senha"), password),
-    )
-    for name, value in fields:
-        if FORBIDDEN.search(value):
-            return fail(name + ' has an unsupported character (; " < > or space)',
-                        name + ' contém caractere não suportado (; " < > ou espaço)')
+        if not server or not username:
+            return fail("server and username are required",
+                        "servidor e usuário são obrigatórios")
+        if password == "":
+            return fail("set a password (none saved yet)",
+                        "defina a senha (ainda não há uma salva)")
+        fields = (
+            (tr("server", "servidor"), server),
+            (tr("username", "usuário"), username),
+            (tr("domain", "domínio"), domain),
+            (tr("login", "login"), login),
+            (tr("password", "senha"), password),
+        )
+        for name, value in fields:
+            if len(value) > MAX_FIELD:
+                return fail(name + " is too long", name + " é longo demais")
+            if FORBIDDEN.search(value):
+                return fail(
+                    name + ' has an unsupported character (; " < > or space)',
+                    name + ' contém caractere não suportado (; " < > ou espaço)')
 
-    line = ('<sip:%s@%s>;auth_user=%s;auth_pass=%s;outbound="sip:%s";'
-            "answermode=manual;regint=300;fbregint=30;"
-            "audio_codecs=opus/48000/2,pcma,pcmu\n"
-            % (username, domain, login, password, server))
-    fd = os.open(PATH, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
-    with os.fdopen(fd, "w", encoding="utf-8") as fh:
-        fh.write(HEADER + line)
-    os.chmod(PATH, 0o600)
+        if secure:
+            uri = "<sip:%s@%s;transport=tls>" % (username, domain)
+            outbound = 'outbound="sip:%s;transport=tls";mediaenc=srtp' % server
+        else:
+            uri = "<sip:%s@%s>" % (username, domain)
+            outbound = 'outbound="sip:%s"' % server
+        line = ("%s;auth_user=%s;auth_pass=%s;%s;"
+                "answermode=manual;regint=300;fbregint=30;"
+                "audio_codecs=opus/48000/2,pcma,pcmu\n"
+                % (uri, login, password, outbound))
+        atomic_write(PATH, HEADER + line, 0o600)
+    finally:
+        os.close(lock_fd)
     print(json.dumps({"ok": True}))
     return 0
 

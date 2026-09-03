@@ -15,7 +15,7 @@ on `pt_*` locales.
 ## Requirements
 
 - Omarchy 4.0 or later (omarchy-shell)
-- `baresip` (`setup.sh` offers to install it via `pacman`)
+- `baresip` and `python-gobject` (`setup.sh` offers to install them via `pacman`)
 - `python3` and `jq` (already present on Omarchy)
 - PipeWire for audio (Omarchy default)
 
@@ -29,10 +29,14 @@ bash ~/.config/omarchy/plugins/oma.sip/setup.sh
 `omarchy plugin add` only clones and enables the plugin — it never runs
 plugin code. `setup.sh` is a manual step that:
 
-1. installs the `baresip` package if missing (asks before using `sudo`);
-2. creates `~/.baresip/config` from `templates/config.tmpl`;
+1. installs the `baresip` and `python-gobject` packages if missing (asks
+   before using `sudo`);
+2. creates `~/.baresip` (mode `700`) and its `config` from
+   `templates/config.tmpl` (migrating old configs from `ctrl_tcp` to
+   `ctrl_dbus`);
 3. asks for server, extension and password and writes `~/.baresip/accounts`
    with `600` permissions (the password never goes through process argv);
+   TLS + SRTP by default, unencrypted UDP only by explicit choice;
 4. installs and starts the `baresip.service` unit under `systemctl --user`.
 
 The account can also be created/changed later from the widget's gear button.
@@ -80,29 +84,40 @@ From the command line: `omarchy-shell oma.sip setAudioOutput <node.name>`
 
 ## Security
 
-- The baresip control channel (`ctrl_tcp`, unauthenticated) listens only on
-  `127.0.0.1:4444` — never expose that port outside localhost.
-- The extension password lives only in `~/.baresip/accounts` (`600`); it
-  never reaches QML nor process arguments.
-- SIP transport defaults to unencrypted UDP. For TLS+SRTP, edit
-  `~/.baresip/accounts` (`;transport=tls` on the URI and `outbound`,
-  `;mediaenc=srtp`).
+- The baresip control channel is `ctrl_dbus` on the **per-user D-Bus session
+  bus**: the bus socket lives in `$XDG_RUNTIME_DIR` (mode `700`) and peers
+  are kernel-authenticated (same UID only). No TCP control port is opened;
+  `ctrl_tcp`/`httpd`/`cons`/`mqtt` (unauthenticated) are never loaded.
+- SIP signaling and media default to **TLS + SRTP** with server-certificate
+  validation (`sip_verify_server yes`). Unencrypted UDP is an explicit
+  opt-out in the widget/setup, with a visible warning.
+- The extension password lives only in `~/.baresip/accounts` (`600`, inside
+  `~/.baresip` `700`); it never reaches QML nor process arguments. Writes to
+  `accounts`/`config` are serialized with an exclusive lock and done
+  atomically (random-name `mkstemp` + `fsync` + `rename`), refusing symlinks
+  (`O_NOFOLLOW`).
+- Everything crossing a trust boundary is bounded: bridge command lines
+  (8 KiB), params (2 KiB), events/responses (64 KiB) with a 10 s command
+  deadline; remote text (peer names, error/status strings) is
+  control-character-stripped, length-clamped and rendered as
+  `Text.PlainText`; notification bodies are markup-stripped; IPC dial
+  targets and device names are validated and capped.
 - Omarchy plugins run unsandboxed inside `omarchy-shell`; review the code
   before enabling.
 
 ## Architecture (summary)
 
 - `baresip` (systemd --user) speaks SIP/RTP to your PBX and exposes local
-  JSON control on `127.0.0.1:4444` (`ctrl_tcp`).
-- `Service.qml` is the only `ctrl_tcp` client, via
-  `bridge/baresip-bridge.py` (netstring ↔ NDJSON, reconnection with
-  backoff), and owns the registration/call state machine. One call at a
-  time (`call_max_calls 1`): a second incoming call gets 486 Busy.
+  control via `ctrl_dbus` (`com.github.Baresip` on the session bus).
+- `Service.qml` owns the control bridge (`bridge/baresip-bridge.py`,
+  D-Bus ↔ NDJSON with bounded parsing and reconnection with backoff) and
+  the registration/call state machine. One call at a time
+  (`call_max_calls 1`): a second incoming call gets 486 Busy.
 - `BarWidget.qml` shows the state and opens the popout with the dialer and
   controls.
 - `bridge/account-tool.py` reads/writes `~/.baresip/accounts` (used by the
   widget and by `setup.sh`); `bridge/config-tool.py` persists the audio
-  devices in `~/.baresip/config`.
+  devices in `~/.baresip/config`. Both use locked atomic writes.
 - UI strings live in `Model.js` (`tr()`), chosen by `Qt.locale()`; the
   Python/bash helpers pick the language from `LANG`/`LC_MESSAGES`.
 

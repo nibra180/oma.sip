@@ -73,7 +73,10 @@ var _msg = {
   unmute_btn:            { en: "Unmute",                               pt: "Ativar som" },
   reject_btn:            { en: "Reject",                               pt: "Recusar" },
   hangup_btn:            { en: "Hang up",                              pt: "Desligar" },
-  dnd_label:             { en: "Do not disturb",                       pt: "Não perturbe" }
+  dnd_label:             { en: "Do not disturb",                       pt: "Não perturbe" },
+  secure_label:          { en: "Encryption (TLS + SRTP)",              pt: "Criptografia (TLS + SRTP)" },
+  insecure_note:         { en: "Unencrypted UDP: password and audio are visible on the network.",
+                           pt: "UDP sem criptografia: senha e áudio ficam visíveis na rede." }
 }
 
 function tr(key) {
@@ -81,20 +84,37 @@ function tr(key) {
   return m ? (m[_lang] || m.en) : key
 }
 
+// Texto de origem remota ou de ferramenta: remove caracteres de controle e
+// corta no tamanho máximo — nada disso deve chegar ilimitado à UI/IPC.
+function clamp(text, max) {
+  var t = String(text || "").replace(/[\x00-\x1f\x7f]/g, " ")
+  return t.length > max ? t.substring(0, max - 1) + "…" : t
+}
+
+// Corpo de notificação: notify-send interpreta markup — além do clamp,
+// remove os metacaracteres.
+function notifyText(text) {
+  return clamp(text, 80).replace(/[<>&"]/g, "")
+}
+
 // Normaliza o alvo digitado para algo que o comando dial do baresip aceita:
 // número/ramal puro passa direto (o baresip completa com o domínio da conta),
 // "sip:..." passa intacto, "usuario@host" vira "sip:usuario@host".
+// Limites: 255 caracteres, só ASCII imprimível sem espaço em URIs.
 function normalizeTarget(raw) {
   var t = String(raw || "").trim()
-  if (t === "") return ""
-  if (t.indexOf("sip:") === 0 || t.indexOf("sips:") === 0) return t
-  if (t.indexOf("@") > 0) return "sip:" + t
+  if (t === "" || t.length > 255) return ""
+  var isUri = t.indexOf("sip:") === 0 || t.indexOf("sips:") === 0
+  if (isUri || t.indexOf("@") > 0) {
+    if (!/^[\x21-\x7e]+$/.test(t)) return ""
+    return isUri ? t : "sip:" + t
+  }
   return t.replace(/[^0-9+*#]/g, "")
 }
 
 // Nome curto para exibir: "sip:203@sip.exemplo.com.br" -> "203"
 function peerDisplay(uri) {
-  var t = String(uri || "")
+  var t = clamp(uri, 255)
   t = t.replace(/^"?([^"<]*)"?\s*</, "$1|<")
   var display = ""
   var pipe = t.indexOf("|<")
@@ -106,7 +126,7 @@ function peerDisplay(uri) {
   var at = t.indexOf("@")
   var user = at > 0 ? t.substring(0, at) : t
   user = user.split(";")[0]
-  return display !== "" ? display + " (" + user + ")" : user
+  return clamp(display !== "" ? display + " (" + user + ")" : user, 64)
 }
 
 // O baresip colore a saída com escapes ANSI (ex.: ESC[32mOK); sem removê-los,
@@ -130,7 +150,7 @@ function parseReginfo(data) {
     known: true,
     count: count,
     registered: count > 0 && ok && !fail,
-    aor: aorMatch ? aorMatch[1] : ""
+    aor: aorMatch ? clamp(aorMatch[1], 96) : ""
   }
 }
 
@@ -139,7 +159,7 @@ function parseReginfo(data) {
 // da lista); o erro só aparece no texto.
 function audioSwitchError(data) {
   var first = stripAnsi(data).split("\n").filter(function(l) { return l.trim() !== "" })[0] || ""
-  return /no such|Format should be|failed/i.test(first) ? first.trim() : ""
+  return /no such|Format should be|failed/i.test(first) ? clamp(first.trim(), 160) : ""
 }
 
 // Opções do Dropdown de dispositivos: "" = padrão do sistema; o dispositivo
@@ -153,9 +173,9 @@ function deviceOptions(nodes, current) {
     if (!n || !n.name) continue
     var name = String(n.name)
     if (name === current) found = true
-    opts.push({ value: name, label: String(n.description || n.nickname || name) })
+    opts.push({ value: name, label: clamp(n.description || n.nickname || name, 64) })
   }
-  if (current !== "" && !found) opts.push({ value: current, label: current + tr("unavailable_suffix") })
+  if (current !== "" && !found) opts.push({ value: current, label: clamp(current, 64) + tr("unavailable_suffix") })
   return opts
 }
 

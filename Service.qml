@@ -4,10 +4,10 @@ import Quickshell.Io
 import Quickshell.Services.Pipewire
 import "Model.js" as Model
 
-// Serviço do softfone: único dono da conexão de controle com o baresip
-// (ctrl_tcp aceita um cliente só), máquina de estados de registro/chamada,
-// gestão da conta SIP e alvo IPC para atalhos do Hyprland
-// (omarchy-shell oma.sip <método>).
+// Serviço do softfone: único dono da ponte de controle com o baresip
+// (ctrl_dbus no barramento de sessão, via bridge/baresip-bridge.py),
+// máquina de estados de registro/chamada, gestão da conta SIP e alvo IPC
+// para atalhos do Hyprland (omarchy-shell oma.sip <método>).
 Item {
   id: root
 
@@ -23,6 +23,7 @@ Item {
   // conta (a senha nunca chega ao QML — fica só em ~/.baresip/accounts)
   property bool accountConfigured: false
   property bool accountHasPassword: false
+  property bool accountSecure: true
   property string accountServer: ""
   property string accountUsername: ""
   property string accountDomain: ""
@@ -63,7 +64,10 @@ Item {
 
   function requestReginfo() {
     var token = send("reginfo")
-    if (token !== "") _pendingReginfo = token
+    if (token !== "") {
+      _pendingReginfo = token
+      pendingWatchdog.restart()
+    }
   }
 
   function dial(target) {
@@ -97,7 +101,7 @@ Item {
 
   // Grava a conta via account-tool (senha só por stdin) e reinicia o baresip.
   // Senha vazia mantém a atual.
-  function saveAccount(server, username, domain, login, password) {
+  function saveAccount(server, username, domain, login, password, secure) {
     if (savingAccount) return Model.tr("saving")
     if (callState !== "idle") return Model.tr("account_busy_call")
     if (String(server).trim() === "" || String(username).trim() === "")
@@ -109,7 +113,8 @@ Item {
       username: String(username).trim(),
       domain: String(domain).trim(),
       login: String(login).trim(),
-      password: String(password)
+      password: String(password),
+      secure: secure === undefined ? true : !!secure
     })
     writeAccount.running = true
     return "ok"
@@ -123,6 +128,7 @@ Item {
 
   function _setAudio(kind, name) {
     name = String(name || "").trim()
+    if (name.length > 255 || /[\s,\x00-\x1f]/.test(name)) return Model.tr("invalid_response")
     if (kind === "output") audioOutput = name
     else audioInput = name
     lastError = ""
@@ -143,7 +149,10 @@ Item {
     }
     if (name === "") return
     var token = send(kind === "output" ? "auplay" : "ausrc", "pipewire," + name)
-    if (token !== "") _pendingAudio = token
+    if (token !== "") {
+      _pendingAudio = token
+      pendingWatchdog.restart()
+    }
   }
 
   function restartBaresip() {
@@ -153,13 +162,14 @@ Item {
   }
 
   function notify(summary, body) {
-    Quickshell.execDetached(["notify-send", "-a", Model.tr("app_name"), summary, body || ""])
+    Quickshell.execDetached(["notify-send", "-a", Model.tr("app_name"), summary, Model.notifyText(body)])
   }
 
   function handleLine(line) {
+    if (line.length > 65536) return // a ponte limita; linha maior é lixo
     var obj
     try { obj = JSON.parse(line) } catch (e) {
-      console.log("oma.sip: linha inválida da ponte:", line)
+      console.log("oma.sip: linha inválida da ponte:", Model.clamp(line, 200))
       return
     }
     if (obj.bridge !== undefined) {
@@ -174,7 +184,7 @@ Item {
         baresipUp = false
         registered = false
         regDetail = Model.tr("baresip_down")
-        if (obj.detail) lastError = obj.detail
+        if (obj.detail) lastError = Model.clamp(obj.detail, 160)
       }
       return
     }
@@ -203,8 +213,8 @@ Item {
         return
       }
       if (obj.ok === false) {
-        lastError = String(obj.data || Model.tr("command_failed"))
-        console.log("oma.sip: comando falhou:", JSON.stringify(obj))
+        lastError = Model.clamp(obj.data || Model.tr("command_failed"), 160)
+        console.log("oma.sip: comando falhou:", Model.clamp(JSON.stringify(obj), 300))
       }
     }
   }
@@ -215,10 +225,10 @@ Item {
     if (cls === "register") {
       if (type === "REGISTER_OK") {
         registered = true
-        regDetail = ev.accountaor ? ev.accountaor.replace(/^sips?:/, "") : Model.tr("registered")
+        regDetail = ev.accountaor ? Model.clamp(String(ev.accountaor).replace(/^sips?:/, ""), 96) : Model.tr("registered")
       } else if (type === "REGISTER_FAIL") {
         registered = false
-        regDetail = Model.tr("register_failed") + (ev.param ? ": " + ev.param : "")
+        regDetail = Model.tr("register_failed") + (ev.param ? ": " + Model.clamp(ev.param, 120) : "")
       } else if (type === "UNREGISTERING") {
         registered = false
         regDetail = Model.tr("unregistered")
@@ -304,6 +314,18 @@ Item {
     onTriggered: bridge.running = true
   }
 
+  // Watchdog dos comandos com resposta pendente: se o baresip não responder
+  // (ponte caiu no meio, resposta perdida), limpa os tokens para o estado
+  // não ficar preso esperando.
+  Timer {
+    id: pendingWatchdog
+    interval: 15000
+    onTriggered: {
+      root._pendingReginfo = ""
+      root._pendingAudio = ""
+    }
+  }
+
   // Ressincroniza o registro enquanto não confirmado (cobre eventos perdidos
   // entre o start do baresip e a conexão da ponte).
   Timer {
@@ -329,6 +351,7 @@ Item {
           var info = JSON.parse(line)
           root.accountConfigured = !!info.configured
           root.accountHasPassword = !!info.hasPassword
+          root.accountSecure = info.secure === undefined ? true : !!info.secure
           root.accountServer = info.server || ""
           root.accountUsername = info.username || ""
           root.accountDomain = info.domain || ""
@@ -433,7 +456,8 @@ Item {
           username: root.accountUsername,
           domain: root.accountDomain,
           login: root.accountLogin,
-          hasPassword: root.accountHasPassword
+          hasPassword: root.accountHasPassword,
+          secure: root.accountSecure
         },
         audio: { output: root.audioOutput, input: root.audioInput },
         call: root.callState,

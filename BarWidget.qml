@@ -121,6 +121,7 @@ BarWidget {
     domainField.text = sip.accountDomain === sip.accountServer ? "" : sip.accountDomain
     loginField.text = sip.accountLogin === sip.accountUsername ? "" : sip.accountLogin
     passwordField.text = ""
+    tlsToggle.checked = sip.accountSecure
   }
 
   // Registro confirmado enquanto o formulário está aberto → volta ao discador.
@@ -160,6 +161,7 @@ BarWidget {
       anchors.verticalCenter: parent.verticalCenter
       visible: !root.bar.vertical && root.label !== ""
       text: root.label
+      textFormat: Text.PlainText
       color: root.tone
       font.family: root.bar.fontFamily
       font.pixelSize: Style.font.body
@@ -225,6 +227,7 @@ BarWidget {
               if (!root.registered) return root.sip ? root.sip.regDetail : Model.tr("no_registration")
               return Model.tr("registered_prefix") + root.sip.regDetail
             }
+            textFormat: Text.PlainText
             color: root.registered ? root.bar.foreground : Qt.darker(root.bar.foreground, 1.4)
             font.family: root.bar.fontFamily
             font.pixelSize: Style.font.bodySmall
@@ -367,6 +370,37 @@ BarWidget {
             Keys.onEscapePressed: root.popupOpen = false
           }
 
+          Row {
+            width: parent.width
+            spacing: Style.space(8)
+
+            ToggleSwitch {
+              id: tlsToggle
+              anchors.verticalCenter: parent.verticalCenter
+              checked: true
+              foreground: root.bar.foreground
+              accent: Color.accent
+            }
+
+            Text {
+              anchors.verticalCenter: parent.verticalCenter
+              text: Model.tr("secure_label")
+              color: root.bar.foreground
+              font.family: root.bar.fontFamily
+              font.pixelSize: Style.font.bodySmall
+            }
+          }
+
+          Text {
+            width: parent.width
+            visible: !tlsToggle.checked
+            text: Model.tr("insecure_note")
+            wrapMode: Text.Wrap
+            color: Qt.darker(root.bar.foreground, 1.3)
+            font.family: root.bar.fontFamily
+            font.pixelSize: Style.font.caption
+          }
+
           Button {
             id: saveButton
             text: Model.tr(root.sip && root.sip.savingAccount ? "saving_btn" : "save_register")
@@ -377,7 +411,8 @@ BarWidget {
               && serverField.text.trim() !== "" && usernameField.text.trim() !== ""
             onClicked: {
               var result = root.sip.saveAccount(serverField.text, usernameField.text,
-                                                domainField.text, loginField.text, passwordField.text)
+                                                domainField.text, loginField.text,
+                                                passwordField.text, tlsToggle.checked)
               if (result === "ok") passwordField.text = ""
               else root.sip.lastError = result
             }
@@ -401,6 +436,7 @@ BarWidget {
             if (root.callState === "outgoing") return Model.tr("calling_prefix") + root.peer
             return Model.tr("in_call_prefix") + root.peer + " · " + Model.fmtDuration(root.callSeconds)
           }
+          textFormat: Text.PlainText
           color: Color.accent
           font.family: root.bar.fontFamily
           font.pixelSize: Style.font.body
@@ -501,6 +537,7 @@ BarWidget {
           width: parent.width
           visible: root.sip && root.sip.lastError !== ""
           text: root.sip ? root.sip.lastError : ""
+          textFormat: Text.PlainText
           color: Qt.darker(root.bar.foreground, 1.4)
           font.family: root.bar.fontFamily
           font.pixelSize: Style.font.caption

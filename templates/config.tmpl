@@ -6,6 +6,8 @@ poll_method             epoll
 # --- SIP ---
 sip_cafile              /etc/ssl/certs/ca-certificates.crt
 sip_capath              /etc/ssl/certs
+# Validate the server certificate on TLS (accounts default to TLS+SRTP).
+sip_verify_server       yes
 call_local_timeout      120
 # One call at a time: a second incoming call gets 486 Busy from baresip
 # itself (the plugin does not manage multiple lines).
@@ -40,9 +42,11 @@ module_app              contact.so
 module_app              debug_cmd.so
 module_app              menu.so
 module_app              netroam.so
-module_app              ctrl_tcp.so
+module_app              ctrl_dbus.so
 
 # --- Local control ---
-# WARNING: ctrl_tcp has NO authentication. ALWAYS keep it on 127.0.0.1.
-# Never load httpd/cons/mqtt (also unauthenticated).
-ctrl_tcp_listen         127.0.0.1:4444
+# ctrl_dbus: control over the per-user D-Bus SESSION bus. The bus socket
+# lives in $XDG_RUNTIME_DIR (0700) and peers are kernel-authenticated
+# (same UID only) — no TCP port is opened.
+# Never load ctrl_tcp/httpd/cons/mqtt (all unauthenticated).
+ctrl_dbus_use           session
