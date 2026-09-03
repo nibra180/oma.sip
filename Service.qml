@@ -180,6 +180,9 @@ Item {
         if (regDetail === Model.tr("connecting") || regDetail === Model.tr("reconnecting"))
           regDetail = Model.tr("checking_registration")
         requestReginfo()
+        // Um restart do baresip costuma acompanhar mudança de conta (setup.sh,
+        // edição manual): relê o arquivo para o form/estado não ficarem velhos.
+        readAccount.running = true
       } else {
         baresipUp = false
         registered = false
@@ -200,6 +203,11 @@ Item {
           } else if (info.registered) {
             registered = true
             regDetail = info.aor !== "" ? info.aor : Model.tr("registered")
+          } else if (info.failed) {
+            // O baresip segue re-tentando (fbregint); sem isto a UI ficaria
+            // presa em "registrando…" p.ex. quando o servidor não tem TLS.
+            registered = false
+            regDetail = Model.tr("register_failed")
           } else if (!registered) {
             regDetail = Model.tr("registering")
           }

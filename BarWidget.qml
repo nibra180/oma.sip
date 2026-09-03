@@ -377,7 +377,11 @@ BarWidget {
             ToggleSwitch {
               id: tlsToggle
               anchors.verticalCenter: parent.verticalCenter
+              // O ToggleSwitch é controlado pelo chamador: o clique só emite
+              // toggled() e cabe a nós virar o valor (estado local do form,
+              // aplicado de fato no salvar).
               checked: true
+              onToggled: checked = !checked
               foreground: root.bar.foreground
               accent: Color.accent
             }
@@ -393,8 +397,7 @@ BarWidget {
 
           Text {
             width: parent.width
-            visible: !tlsToggle.checked
-            text: Model.tr("insecure_note")
+            text: Model.tr(tlsToggle.checked ? "secure_note" : "insecure_note")
             wrapMode: Text.Wrap
             color: Qt.darker(root.bar.foreground, 1.3)
             font.family: root.bar.fontFamily

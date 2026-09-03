@@ -75,6 +75,8 @@ var _msg = {
   hangup_btn:            { en: "Hang up",                              pt: "Desligar" },
   dnd_label:             { en: "Do not disturb",                       pt: "Não perturbe" },
   secure_label:          { en: "Encryption (TLS + SRTP)",              pt: "Criptografia (TLS + SRTP)" },
+  secure_note:           { en: "The server must offer SIP over TLS (default port 5061; use server:port if different).",
+                           pt: "O servidor precisa oferecer SIP sobre TLS (porta padrão 5061; use servidor:porta se for outra)." },
   insecure_note:         { en: "Unencrypted UDP: password and audio are visible on the network.",
                            pt: "UDP sem criptografia: senha e áudio ficam visíveis na rede." }
 }
@@ -150,6 +152,7 @@ function parseReginfo(data) {
     known: true,
     count: count,
     registered: count > 0 && ok && !fail,
+    failed: fail,
     aor: aorMatch ? clamp(aorMatch[1], 96) : ""
   }
 }
