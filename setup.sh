@@ -10,8 +10,9 @@ set -euo pipefail
 #   2. creates ~/.baresip (0700) and its config from the template (if
 #      missing); migrates an old config from ctrl_tcp to ctrl_dbus
 #   3. asks for server/extension/password and writes ~/.baresip/accounts (600)
-#      via bridge/account-tool.py — the password never touches argv;
-#      TLS+SRTP by default, unencrypted UDP only by explicit choice
+#      via bridge/account-tool.py — the password never touches argv (it reaches
+#      jq through a pipe, not through arguments); TLS+SRTP by default,
+#      unencrypted UDP only by explicit choice
 #   4. installs and (re)starts the baresip.service systemd --user unit
 
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -58,6 +59,7 @@ elif grep -q "ctrl_tcp" "$BARESIP_DIR/config"; then
 fi
 
 if [[ "$(python3 "$ACCOUNT_TOOL" read | jq -r '.configured')" != "true" ]]; then
+  echo "$(t "Note: spaces and the characters ; \" < > are not supported in the password (baresip ends the URI parameter there)." "Aviso: espaço e os caracteres ; \" < > não são suportados na senha (o baresip encerra o parâmetro da URI aí).")"
   read -rp "$(t "SIP server (e.g. sip.example.com): " "Servidor SIP (ex.: sip.exemplo.com.br): ")" SERVER
   read -rp "$(t "Extension/username (e.g. 201): " "Ramal/usuário (ex.: 201): ")" USERNAME
   read -rp "$(t "Auth login [${USERNAME}]: " "Login de autenticação [${USERNAME}]: ")" LOGIN
@@ -66,8 +68,12 @@ if [[ "$(python3 "$ACCOUNT_TOOL" read | jq -r '.configured')" != "true" ]]; then
   read -rp "$(t "Encrypt with TLS + SRTP? (server must support it) [Y/n] " "Criptografar com TLS + SRTP? (o servidor precisa suportar) [S/n] ")" SEC
   case "${SEC,,}" in n*) SECURE=false ;; *) SECURE=true ;; esac
   # jq builds the JSON with proper escaping; account-tool writes it as 0600.
+  # The password arrives through --rawfile on a process substitution, never as
+  # an argument: /proc/<pid>/cmdline is world-readable, so argv would show it to
+  # every local user for as long as jq runs.
   if ! result="$(jq -cn --arg server "$SERVER" --arg username "$USERNAME" \
-        --arg login "${LOGIN:-}" --arg password "$PASSWORD" --argjson secure "$SECURE" \
+        --arg login "${LOGIN:-}" --argjson secure "$SECURE" \
+        --rawfile password <(printf '%s' "$PASSWORD") \
         '{server: $server, username: $username, domain: "", login: $login, password: $password, secure: $secure}' \
       | python3 "$ACCOUNT_TOOL" write)"; then
     echo "$(t "failed to write the account:" "erro ao gravar a conta:") $(jq -r '.error // .' <<<"$result" 2>/dev/null || echo "$result")" >&2
@@ -75,7 +81,12 @@ if [[ "$(python3 "$ACCOUNT_TOOL" read | jq -r '.configured')" != "true" ]]; then
   fi
   echo "-> $(t "account written to ~/.baresip/accounts (600)" "conta gravada em ~/.baresip/accounts (600)")"
 fi
-chmod 600 "$BARESIP_DIR/accounts"
+# An existing accounts file keeps its own permissions until it is rewritten;
+# a missing one is not an error here (setup ran for the first time and the
+# account will be written later from the widget's configuration form).
+if [[ -f "$BARESIP_DIR/accounts" ]]; then
+  chmod 600 "$BARESIP_DIR/accounts"
+fi
 
 mkdir -p "$UNIT_DIR"
 install -m 644 "$DIR/systemd/baresip.service" "$UNIT_DIR/baresip.service"

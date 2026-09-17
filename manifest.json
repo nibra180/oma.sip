@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "id": "oma.sip",
   "name": "SIP Softphone",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "author": "Vinicius Galleti",
   "license": "MIT",
   "description": "SIP softphone in the bar: registration, calls, mute, DND and audio device selection, powered by baresip. UI in English or pt-BR (follows system locale).",

@@ -87,15 +87,31 @@ From the command line: `omarchy-shell oma.sip setAudioOutput <node.name>`
 - The baresip control channel is `ctrl_dbus` on the **per-user D-Bus session
   bus**: the bus socket lives in `$XDG_RUNTIME_DIR` (mode `700`) and peers
   are kernel-authenticated (same UID only). No TCP control port is opened;
-  `ctrl_tcp`/`httpd`/`cons`/`mqtt` (unauthenticated) are never loaded.
+  `ctrl_tcp`/`httpd`/`cons`/`mqtt` (unauthenticated) are never loaded. This
+  says nothing about the SIP listener below, which is a separate port.
+- **The SIP listener is open.** `config.tmpl` keeps the baresip defaults, so
+  baresip listens on `0.0.0.0:5060` (UDP/TCP) and accepts unauthenticated
+  INVITEs: a device on the same network can make the phone ring. `call_accept
+  no` only stops the plugin from answering by itself. Narrow it with
+  `sip_listen`/`sip_transports` in `~/.baresip/config` or with a firewall rule
+  if you do not need to receive calls in the network you are in.
 - SIP signaling and media default to **TLS + SRTP** with server-certificate
   validation (`sip_verify_server yes`). Unencrypted UDP is an explicit
-  opt-out in the widget/setup, with a visible warning.
-- The extension password lives only in `~/.baresip/accounts` (`600`, inside
-  `~/.baresip` `700`); it never reaches QML nor process arguments. Writes to
+  opt-out in the widget/setup, with a visible warning. The SRTP requirement is
+  stored per account, so it covers your own calls; a call from an unknown
+  caller arriving over the listener above is plain RTP.
+- The extension password lives in `~/.baresip/accounts` (`600`, inside
+  `~/.baresip` `700`). It is read back by nothing but the account tool: the
+  widget shows only whether a password is set, and clears its input field after
+  saving. During entry and saving it is in `omarchy-shell`'s memory and in a
+  pipe to `bridge/account-tool.py`, but never in process arguments
+  (`/proc/<pid>/cmdline` is readable by every local user). Writes to
   `accounts`/`config` are serialized with an exclusive lock and done
   atomically (random-name `mkstemp` + `fsync` + `rename`), refusing symlinks
   (`O_NOFOLLOW`).
+- Passwords containing a space or any of `; " < >` are rejected by
+  `bridge/account-tool.py`: baresip ends a URI parameter at `;` and whitespace,
+  so such a password cannot be stored in `accounts` at all.
 - Everything crossing a trust boundary is bounded: bridge command lines
   (8 KiB), params (2 KiB), events/responses (64 KiB) with a 10 s command
   deadline; remote text (peer names, error/status strings) is
