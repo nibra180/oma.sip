@@ -89,12 +89,14 @@ From the command line: `omarchy-shell oma.sip setAudioOutput <node.name>`
   are kernel-authenticated (same UID only). No TCP control port is opened;
   `ctrl_tcp`/`httpd`/`cons`/`mqtt` (unauthenticated) are never loaded. This
   says nothing about the SIP listener below, which is a separate port.
-- **The SIP listener is open.** `config.tmpl` keeps the baresip defaults, so
-  baresip listens on `0.0.0.0:5060` (UDP/TCP) and accepts unauthenticated
-  INVITEs: a device on the same network can make the phone ring. `call_accept
-  no` only stops the plugin from answering by itself. Narrow it with
-  `sip_listen`/`sip_transports` in `~/.baresip/config` or with a firewall rule
-  if you do not need to receive calls in the network you are in.
+- **The SIP listener is open on every interface.** The template leaves
+  `sip_listen` unset, and baresip binds a SIP transport (UDP and TCP) on every
+  local address with an OS-assigned port. That covers the Wi-Fi or LAN address,
+  a VPN interface such as Tailscale, and every container bridge. Those
+  listeners accept unauthenticated INVITEs, so anything on the same network can
+  make the phone ring; `call_accept no` only stops the plugin from answering by
+  itself. Setting `sip_listen` to `address:port` restricts the listener to the
+  matching interface and gives you a fixed port to firewall.
 - SIP signaling and media default to **TLS + SRTP** with server-certificate
   validation (`sip_verify_server yes`). Unencrypted UDP is an explicit
   opt-out in the widget/setup, with a visible warning. The SRTP requirement is

@@ -8,16 +8,16 @@ sip_cafile              /etc/ssl/certs/ca-certificates.crt
 sip_capath              /etc/ssl/certs
 # Validate the server certificate on TLS (accounts default to TLS+SRTP).
 sip_verify_server       yes
-# sip_listen and sip_transports keep the baresip defaults: 0.0.0.0:5060 over
-# UDP/TCP, plus 5061 for TLS. The plugin needs inbound calls from the PBX in
-# whatever network the machine happens to be in, so narrowing the listener to
-# one address breaks as soon as the network changes. What it costs: a device on
-# the same network can send an unauthenticated INVITE and make the phone ring.
-# call_accept no only stops it from answering itself. To narrow it down, pick
-# one of these in this file or in a firewall rule:
-#   sip_listen 192.168.1.5:5060      (one interface, breaks on network change)
-#   sip_transports tls               (only if the PBX delivers calls over TLS)
-#   a firewall rule that lets only the PBX address reach 5060/5061
+# sip_listen is deliberately left unset. baresip then binds a SIP transport
+# (UDP and TCP) on every local address with an OS-assigned port, which is what
+# makes the phone reachable from whatever network the machine is in: Wi-Fi, a
+# VPN interface, and every container bridge. Those listeners accept
+# unauthenticated INVITEs, so anything on the same network can make the phone
+# ring; call_accept no only stops the plugin from answering itself.
+# To pin it down, set sip_listen to an address and port, which restricts the
+# listener to the matching interface and gives you a fixed port to firewall:
+#   sip_listen 192.168.1.5:5060   (breaks on a network change)
+#   sip_transports udp,tcp,tls    (or only tls, if the PBX supports it)
 call_local_timeout      120
 # One call at a time: a second incoming call gets 486 Busy from baresip
 # itself (the plugin does not manage multiple lines).
