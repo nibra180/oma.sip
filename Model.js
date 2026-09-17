@@ -3,7 +3,7 @@
 // ---- Idioma da UI: inglês por padrão, pt-BR quando o locale do sistema é
 // pt_* (Qt.locale() segue LANG/LC_MESSAGES). Strings novas entram aqui.
 var _lang = (function() {
-  try { return String(Qt.locale().name || "").indexOf("pt") === 0 ? "pt" : "en" }
+  try { return String(Qt.locale().name || "").startsWith("pt") ? "pt" : "en" }
   catch (e) { return "en" }
 })()
 
@@ -85,6 +85,9 @@ var _msg = {
   save_contact_failed:   { en: "failed to save the contact",            pt: "falha ao salvar contato" },
   contacts_search_ph:    { en: "Search contacts…",                      pt: "Buscar contatos…" },
   contacts_no_match:     { en: "no contact matches",                    pt: "nenhum contato corresponde" },
+  contacts_edit_btn:     { en: "Edit file",                              pt: "Editar arquivo" },
+  contacts_edit_tip:     { en: "Open ~/.baresip/contacts in your default editor",
+                           pt: "Abrir ~/.baresip/contacts no editor padrão" },
   contacts_hint:         { en: "Enter dials the top match. Saved to ~/.baresip/contacts; a rule like ;access=block applies after a baresip restart.",
                            pt: "Enter liga para o primeiro resultado. Salvos em ~/.baresip/contacts; uma regra como ;access=block vale após reiniciar o baresip." },
   secure_label:          { en: "Encryption (TLS + SRTP)",              pt: "Criptografia (TLS + SRTP)" },
@@ -102,8 +105,8 @@ function tr(key) {
 // Texto de origem remota ou de ferramenta: remove caracteres de controle e
 // corta no tamanho máximo — nada disso deve chegar ilimitado à UI/IPC.
 function clamp(text, max) {
-  var t = String(text || "").replace(/[\x00-\x1f\x7f]/g, " ")
-  return t.length > max ? t.substring(0, max - 1) + "…" : t
+  var t = String(text || "").replace(/[\u0000-\u001f\u007f]/g, " ")
+  return t.length > max ? `${t.slice(0, max - 1)}…` : t
 }
 
 // Corpo de notificação: notify-send interpreta markup — além do clamp,
@@ -119,10 +122,10 @@ function notifyText(text) {
 function normalizeTarget(raw) {
   var t = String(raw || "").trim()
   if (t === "" || t.length > 255) return ""
-  var isUri = t.indexOf("sip:") === 0 || t.indexOf("sips:") === 0
-  if (isUri || t.indexOf("@") > 0) {
-    if (!/^[\x21-\x7e]+$/.test(t)) return ""
-    return isUri ? t : "sip:" + t
+  var isUri = t.startsWith("sip:") || t.startsWith("sips:")
+  if (isUri || (t.includes("@") && !t.startsWith("@"))) {
+    if (!/^[\u0021-\u007e]+$/.test(t)) return ""
+    return isUri ? t : `sip:${t}`
   }
   return t.replace(/[^0-9+*#]/g, "")
 }
@@ -134,20 +137,21 @@ function peerDisplay(uri) {
   var display = ""
   var pipe = t.indexOf("|<")
   if (pipe > 0) {
-    display = t.substring(0, pipe).trim()
-    t = t.substring(pipe + 1)
+    display = t.slice(0, pipe).trim()
+    t = t.slice(pipe + 1)
   }
   t = t.replace(/^<|>$/g, "").replace(/^sips?:/, "")
   var at = t.indexOf("@")
-  var user = at > 0 ? t.substring(0, at) : t
+  var user = at > 0 ? t.slice(0, at) : t
   user = user.split(";")[0]
-  return clamp(display !== "" ? display + " (" + user + ")" : user, 64)
+  if (display === "") return clamp(user, 64)
+  return clamp(`${display} (${user})`, 64)
 }
 
 // O baresip colore a saída com escapes ANSI (ex.: ESC[32mOK); sem removê-los,
 // "mOK" não casa com \bOK\b e as mensagens ficam ilegíveis na UI.
 function stripAnsi(text) {
-  return String(text || "").replace(/\x1b\[[0-9;]*m/g, "")
+  return String(text || "").replace(/\u001b\[[0-9;]*m/g, "")
 }
 
 // Interpreta a resposta textual do comando reginfo ("--- User Agents (N) ---"
@@ -174,7 +178,7 @@ function parseReginfo(data) {
 // recusa o dispositivo ("no such device for pipewire audio-player: x" seguido
 // da lista); o erro só aparece no texto.
 function audioSwitchError(data) {
-  var first = stripAnsi(data).split("\n").filter(function(l) { return l.trim() !== "" })[0] || ""
+  var first = stripAnsi(data).split("\n").find(function(l) { return l.trim() !== "" }) || ""
   return /no such|Format should be|failed/i.test(first) ? clamp(first.trim(), 160) : ""
 }
 
@@ -184,10 +188,14 @@ function audioSwitchError(data) {
 function deviceOptions(nodes, current) {
   var opts = [{ value: "", label: tr("system_default") }]
   var found = false
-  for (var i = 0; i < nodes.length; i++) {
-    var n = nodes[i]
+  var i = 0
+  var n = null
+  var name = ""
+
+  for (i = 0; i < nodes.length; i++) {
+    n = nodes[i]
     if (!n || !n.name) continue
-    var name = String(n.name)
+    name = String(n.name)
     if (name === current) found = true
     opts.push({ value: name, label: clamp(n.description || n.nickname || name, 64) })
   }
@@ -285,6 +293,6 @@ function fmtDuration(totalSeconds) {
   var h = Math.floor(m / 60)
   m = m % 60
   s = s % 60
-  function pad(n) { return (n < 10 ? "0" : "") + n }
-  return h > 0 ? h + ":" + pad(m) + ":" + pad(s) : m + ":" + pad(s)
+  function pad(n) { return `${n < 10 ? "0" : ""}${n}` }
+  return h > 0 ? `${h}:${pad(m)}:${pad(s)}` : `${m}:${pad(s)}`
 }

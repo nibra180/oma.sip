@@ -410,24 +410,43 @@ BarWidget {
             Keys.onEscapePressed: root.popupOpen = false
           }
 
-          Button {
-            id: contactSaveButton
-            text: Model.tr(root.sip && root.sip.savingContact ? "saving_btn" : "contact_save_btn")
-            foreground: root.bar.foreground
-            accent: Color.accent
-            bordered: true
-            enabled: root.sip && !root.sip.savingContact && contactUriField.text.trim() !== ""
-            function doSave() {
-              if (!root.sip || contactUriField.text.trim() === "") return
-              var result = root.sip.addContact(contactNameField.text, contactUriField.text)
-              if (result === "ok") {
-                contactNameField.text = ""
-                contactUriField.text = ""
-              } else {
-                root.sip.lastError = result
+          Row {
+            width: parent.width
+            spacing: Style.space(6)
+
+            Button {
+              id: contactSaveButton
+              width: parent.width - contactEditButton.width - Style.space(6)
+              text: Model.tr(root.sip && root.sip.savingContact ? "saving_btn" : "contact_save_btn")
+              foreground: root.bar.foreground
+              accent: Color.accent
+              bordered: true
+              enabled: root.sip && !root.sip.savingContact && contactUriField.text.trim() !== ""
+              function doSave() {
+                if (!root.sip || contactUriField.text.trim() === "") return
+                var result = root.sip.addContact(contactNameField.text, contactUriField.text)
+                if (result === "ok") {
+                  contactNameField.text = ""
+                  contactUriField.text = ""
+                } else {
+                  root.sip.lastError = result
+                }
               }
+              onClicked: doSave()
             }
-            onClicked: doSave()
+
+            // Rohe Datei im Editor: Parameter wie ;access=allow|block sind im
+            // Formular nicht abgebildet, dafür braucht es den Editor.
+            Button {
+              id: contactEditButton
+              iconText: "󰏫"
+              text: Model.tr("contacts_edit_btn")
+              tooltipText: Model.tr("contacts_edit_tip")
+              foreground: root.bar.foreground
+              accent: Color.accent
+              bordered: true
+              onClicked: if (root.sip) root.sip.openContactsFile()
+            }
           }
 
           Text {

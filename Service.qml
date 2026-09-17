@@ -38,6 +38,8 @@ Item {
   // (module_close descarta a lista), então o plugin escreve o arquivo.
   property var contacts: []
   property bool savingContact: false
+  // Caminho absoluto: contacts-tool.py usa ~/.baresip, o QML não expande "~".
+  readonly property string contactsFile: Quickshell.env("HOME") + "/.baresip/contacts"
   // chamada — MVP: uma por vez
   property string callState: "idle" // idle | incoming | outgoing | active
   property string peer: ""
@@ -128,6 +130,12 @@ Item {
   // usa a uri do contato, então a lista em memória do baresip não precisa
   // estar atualizada; só regras ;access= exigem reiniciar o serviço.
   function refreshContacts() { readContacts.running = true }
+
+  // Abre a lista no editor padrão do Omarchy (omarchy-launch-editor respeita o
+  // default do usuário; editor de terminal ganha uma janela de terminal).
+  function openContactsFile() {
+    Quickshell.execDetached(["omarchy-launch-editor", contactsFile])
+  }
 
   function addContact(name, uri) {
     if (savingContact) return Model.tr("saving")
@@ -544,6 +552,7 @@ Item {
     function dialContact(value: string): string { return root.dialContact(value) }
     function addContact(name: string, uri: string): string { return root.addContact(name, uri) }
     function removeContact(uri: string): string { return root.removeContact(uri) }
+    function editContacts(): string { root.openContactsFile(); return "ok" }
     function state(): string {
       return JSON.stringify({
         bridge: root.bridgeUp,

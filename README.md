@@ -66,7 +66,7 @@ Dial from the command line: `omarchy-shell oma.sip dial 203`
 IPC methods (`omarchy-shell oma.sip <method>`): `dial <target>`, `answer`,
 `hangup`, `toggleMute`, `toggleDnd`, `reregister`, `setAudioOutput <node>`,
 `setAudioInput <node>`, `contacts`, `dialContact <uri|name>`,
-`addContact <name> <uri>`, `removeContact <uri>`, `state`.
+`addContact <name> <uri>`, `removeContact <uri>`, `editContacts`, `state`.
 
 ## Contacts
 
@@ -85,6 +85,10 @@ The field above the list filters as you type. Matching is fuzzy and runs over
 both name and address, so `ms` finds *Music Server* and `201` finds the contact
 whose address carries that extension. Enter dials the top match, Escape clears
 the search first and closes the popout on the second press.
+
+`Edit file` opens `~/.baresip/contacts` in the editor set with `omarchy default
+editor`, which is where `;access=` and `;presence=` go, since the form does not
+model them. A terminal editor gets its own terminal window.
 
 An address can be an extension (`201`), which is completed with the account's
 domain, or a full `user@host` / `sip:user@host`. The baresip contact format needs
