@@ -74,6 +74,17 @@ var _msg = {
   reject_btn:            { en: "Reject",                               pt: "Recusar" },
   hangup_btn:            { en: "Hang up",                              pt: "Desligar" },
   dnd_label:             { en: "Do not disturb",                       pt: "Não perturbe" },
+  contacts_tooltip:      { en: "Contacts",                              pt: "Contatos" },
+  contacts_empty:        { en: "no contacts saved yet",                 pt: "nenhum contato salvo ainda" },
+  contact_name_ph:       { en: "Name (optional)",                       pt: "Nome (opcional)" },
+  contact_uri_ph:        { en: "extension or user@host",                pt: "ramal ou usuario@host" },
+  contact_save_btn:      { en: "Save contact",                          pt: "Salvar contato" },
+  contact_delete_tip:    { en: "Delete contact",                        pt: "Apagar contato" },
+  contact_invalid:       { en: "enter extension or user@host",          pt: "informe ramal ou usuario@host" },
+  contact_call_tip:      { en: "Call",                                  pt: "Ligar" },
+  save_contact_failed:   { en: "failed to save the contact",            pt: "falha ao salvar contato" },
+  contacts_hint:         { en: "Saved to ~/.baresip/contacts and dialled through baresip. A rule like ;access=block only applies after baresip restarts.",
+                           pt: "Salvos em ~/.baresip/contacts e discados pelo baresip. Uma regra como ;access=block só vale depois de reiniciar o baresip." },
   secure_label:          { en: "Encryption (TLS + SRTP)",              pt: "Criptografia (TLS + SRTP)" },
   secure_note:           { en: "The server must offer SIP over TLS (default port 5061; use server:port if different).",
                            pt: "O servidor precisa oferecer SIP sobre TLS (porta padrão 5061; use servidor:porta se for outra)." },
@@ -180,6 +191,27 @@ function deviceOptions(nodes, current) {
   }
   if (current !== "" && !found) opts.push({ value: current, label: clamp(current, 64) + tr("unavailable_suffix") })
   return opts
+}
+
+// Nome do contato para exibir; sem nome, a uri responde por ele.
+function contactLabel(contact) {
+  if (!contact) return ""
+  var name = clamp(contact.name, 64)
+  return name === "" ? clamp(contact.uri, 64) : name
+}
+
+// Mesma forma que contacts-tool.py aceita: o baresip exige host no arquivo de
+// contatos, então um ramal puro precisa do domínio da conta para virar uri.
+var _contactUriRe = /^sips?:[^<>\s;"@]+@[^<>\s;"]+$/
+function contactUriFromInput(raw, domain) {
+  var t = String(raw || "").trim()
+  if (t === "" || t.length > 200) return ""
+  if (/^sips?:/i.test(t)) return _contactUriRe.test(t) ? t : ""
+  if (t.indexOf("@") > 0) return _contactUriRe.test(`sip:${t}`) ? `sip:${t}` : ""
+  var ext = t.replace(/[^0-9+*#]/g, "")
+  var host = String(domain || "").trim()
+  if (ext === "" || host === "") return ""
+  return _contactUriRe.test(`sip:${ext}@${host}`) ? `sip:${ext}@${host}` : ""
 }
 
 function fmtDuration(totalSeconds) {

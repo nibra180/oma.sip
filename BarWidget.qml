@@ -37,8 +37,9 @@ BarWidget {
   property bool popupOpen: false
   property bool showAccount: false
   property bool showAudio: false
+  property bool showContacts: false
   // Discador/controles/DND só aparecem quando nenhum sub-painel está aberto.
-  readonly property bool mainView: !showAccount && !showAudio
+  readonly property bool mainView: !showAccount && !showAudio && !showContacts
 
   // Dispositivos PipeWire, com o mesmo filtro do painel de áudio built-in.
   // Só name/description/isSink/isStream/audio são lidos — node.properties não
@@ -88,11 +89,19 @@ BarWidget {
     focusPreferred()
   }
   onShowAccountChanged: {
-    if (showAccount) { showAudio = false; fillAccountForm() }
+    if (showAccount) { showAudio = false; showContacts = false; fillAccountForm() }
     focusPreferred()
   }
   onShowAudioChanged: {
-    if (showAudio) showAccount = false
+    if (showAudio) { showAccount = false; showContacts = false }
+    focusPreferred()
+  }
+  onShowContactsChanged: {
+    if (showContacts) {
+      showAccount = false
+      showAudio = false
+      if (sip) sip.refreshContacts()
+    }
     focusPreferred()
   }
 
@@ -100,6 +109,7 @@ BarWidget {
   function preferredField() {
     if (!popupOpen) return null
     if (showAccount) return serverField
+    if (showContacts) return contactNameField
     if (registered && callState === "idle") return dialField
     return null
   }
@@ -204,6 +214,7 @@ BarWidget {
       anchors.fill: parent
       blocked: serverField.activeFocus || usernameField.activeFocus || domainField.activeFocus
         || loginField.activeFocus || passwordField.activeFocus || dialField.activeFocus
+        || contactNameField.activeFocus || contactUriField.activeFocus
         || outputDropdown.popupOpen || inputDropdown.popupOpen
       onCloseRequested: root.popupOpen = false
       // Se o foco cair no keyCatcher com um campo visível (ex.: clique em área
@@ -220,7 +231,7 @@ BarWidget {
           spacing: Style.space(6)
 
           Text {
-            width: parent.width - gearButton.width - audioButton.width - Style.space(12)
+            width: parent.width - gearButton.width - audioButton.width - contactsButton.width - Style.space(18)
             anchors.verticalCenter: parent.verticalCenter
             text: {
               if (!root.up) return Model.tr("baresip_down")
@@ -232,6 +243,15 @@ BarWidget {
             font.family: root.bar.fontFamily
             font.pixelSize: Style.font.bodySmall
             elide: Text.ElideRight
+          }
+
+          Button {
+            id: contactsButton
+            iconText: "󰛋"
+            tooltipText: Model.tr("contacts_tooltip")
+            foreground: root.bar.foreground
+            selected: root.showContacts
+            onClicked: root.showContacts = !root.showContacts
           }
 
           Button {
@@ -250,6 +270,117 @@ BarWidget {
             foreground: root.bar.foreground
             selected: root.showAccount
             onClicked: root.showAccount = !root.showAccount
+          }
+        }
+
+        // ---- Contatos (lista + cadastro) ----
+        Column {
+          width: parent.width
+          spacing: Style.space(8)
+          visible: root.showContacts
+
+          Flickable {
+            id: contactScroll
+            width: parent.width
+            height: visible ? Math.min(contactColumn.implicitHeight, Style.space(200)) : 0
+            contentHeight: contactColumn.implicitHeight
+            clip: true
+            boundsBehavior: Flickable.StopAtBounds
+            visible: (root.sip ? root.sip.contacts.length : 0) > 0
+
+            Column {
+              id: contactColumn
+              width: parent.width
+              spacing: Style.space(4)
+
+              Repeater {
+                model: root.sip ? root.sip.contacts : []
+
+                delegate: Row {
+                  id: contactRow
+                  required property var modelData
+                  width: contactColumn.width
+                  height: contactDial.implicitHeight
+                  spacing: Style.space(6)
+
+                  Button {
+                    id: contactDial
+                    width: parent.width - contactDelete.width - Style.space(6)
+                    leftAlign: true
+                    text: Model.contactLabel(contactRow.modelData)
+                    tooltipText: Model.clamp(contactRow.modelData.uri, 96)
+                    bordered: true
+                    foreground: root.bar.foreground
+                    accent: Color.accent
+                    onClicked: if (root.sip) root.sip.dialContact(contactRow.modelData.uri)
+                  }
+
+                  PanelActionButton {
+                    id: contactDelete
+                    iconText: "󰆴"
+                    tooltipText: Model.tr("contact_delete_tip")
+                    foreground: root.bar.foreground
+                    hoverColor: root.bar.urgent
+                    onClicked: if (root.sip) root.sip.removeContact(contactRow.modelData.uri)
+                  }
+                }
+              }
+            }
+          }
+
+          Text {
+            width: parent.width
+            visible: !(root.sip && root.sip.contacts.length > 0)
+            text: Model.tr("contacts_empty")
+            color: Qt.darker(root.bar.foreground, 1.5)
+            font.family: root.bar.fontFamily
+            font.pixelSize: Style.font.caption
+          }
+
+          TextField {
+            id: contactNameField
+            width: parent.width
+            foreground: root.bar.foreground
+            placeholderText: Model.tr("contact_name_ph")
+            Keys.onEscapePressed: root.popupOpen = false
+          }
+
+          TextField {
+            id: contactUriField
+            width: parent.width
+            foreground: root.bar.foreground
+            placeholderText: Model.tr("contact_uri_ph")
+            onAccepted: contactSaveButton.doSave()
+            Keys.onEscapePressed: root.popupOpen = false
+          }
+
+          Button {
+            id: contactSaveButton
+            text: Model.tr(root.sip && root.sip.savingContact ? "saving_btn" : "contact_save_btn")
+            foreground: root.bar.foreground
+            accent: Color.accent
+            bordered: true
+            enabled: root.sip && !root.sip.savingContact && contactUriField.text.trim() !== ""
+            function doSave() {
+              if (!root.sip || contactUriField.text.trim() === "") return
+              var result = root.sip.addContact(contactNameField.text, contactUriField.text)
+              if (result === "ok") {
+                contactNameField.text = ""
+                contactUriField.text = ""
+              } else {
+                root.sip.lastError = result
+              }
+            }
+            onClicked: doSave()
+          }
+
+          Text {
+            width: parent.width
+            text: Model.tr("contacts_hint")
+            wrapMode: Text.Wrap
+            color: Qt.darker(root.bar.foreground, 1.5)
+            font.family: root.bar.fontFamily
+            font.pixelSize: Style.font.caption
           }
         }
 

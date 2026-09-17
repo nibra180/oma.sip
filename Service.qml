@@ -34,6 +34,10 @@ Item {
   property string audioOutput: ""
   property string audioInput: ""
   property bool savingAudio: false
+  // contatos: lidos de ~/.baresip/contacts. O baresip não persiste /addcontact
+  // (module_close descarta a lista), então o plugin escreve o arquivo.
+  property var contacts: []
+  property bool savingContact: false
   // chamada — MVP: uma por vez
   property string callState: "idle" // idle | incoming | outgoing | active
   property string peer: ""
@@ -118,6 +122,46 @@ Item {
     })
     writeAccount.running = true
     return "ok"
+  }
+
+  // Contatos: ~/.baresip/contacts é escrito por bridge/contacts-tool.py. O dial
+  // usa a uri do contato, então a lista em memória do baresip não precisa
+  // estar atualizada; só regras ;access= exigem reiniciar o serviço.
+  function refreshContacts() { readContacts.running = true }
+
+  function addContact(name, uri) {
+    if (savingContact) return Model.tr("saving")
+    var target = Model.contactUriFromInput(uri, accountDomain || accountServer)
+    if (target === "") return Model.tr("contact_invalid")
+    savingContact = true
+    lastError = ""
+    writeContact.mode = "add"
+    writeContact.payload = JSON.stringify({ name: String(name || "").trim(), uri: target })
+    writeContact.running = true
+    return "ok"
+  }
+
+  function removeContact(uri) {
+    if (savingContact) return Model.tr("saving")
+    savingContact = true
+    lastError = ""
+    writeContact.mode = "remove"
+    writeContact.payload = JSON.stringify({ uri: String(uri || "") })
+    writeContact.running = true
+    return "ok"
+  }
+
+  // Aceita a uri ou o nome exato de um contato salvo (IPC e atalhos).
+  function dialContact(value) {
+    var target = String(value || "").trim()
+    if (target === "") return Model.tr("empty_target")
+    var list = contacts || []
+    for (var i = 0; i < list.length; i++) {
+      var c = list[i]
+      if (!c) continue
+      if (c.uri === target || String(c.name) === target) return dial(c.uri)
+    }
+    return dial(target)
   }
 
   // Dispositivos de áudio. Persiste no config (vale após reinício) e aplica ao
@@ -246,7 +290,9 @@ Item {
     if (cls !== "call") return
     switch (type) {
     case "CALL_INCOMING": {
-      var who = Model.peerDisplay(ev.peerdisplay || ev.peeruri || "")
+      // O baresip manda o nome do chamador em peerdisplayname (src/bevent.c);
+      // com peerdisplay o fallback mostrava só a uri.
+      var who = Model.peerDisplay(ev.peerdisplayname || ev.peerdisplay || ev.peeruri || "")
       if (dnd) {
         // Com call_max_calls 1 no config, o baresip responde 486 sozinho a uma
         // segunda chamada; aqui só chega a primeira, que é a chamada corrente —
@@ -289,6 +335,7 @@ Item {
   Component.onCompleted: {
     readAccount.running = true
     readAudio.running = true
+    refreshContacts()
   }
 
   Process {
@@ -440,6 +487,47 @@ Item {
     }
   }
 
+  Process {
+    id: readContacts
+    command: ["python3", root.pluginDir + "bridge/contacts-tool.py", "list"]
+    stdout: SplitParser {
+      onRead: function(line) {
+        try {
+          var info = JSON.parse(line)
+          root.contacts = Array.isArray(info.contacts) ? info.contacts : []
+        } catch (e) {
+          console.log("oma.sip: leitura de contatos falhou:", line)
+        }
+      }
+    }
+  }
+
+  Process {
+    id: writeContact
+    property string mode: "add"
+    property string payload: ""
+    command: ["python3", root.pluginDir + "bridge/contacts-tool.py", writeContact.mode]
+    stdinEnabled: true
+    onStarted: {
+      write(payload + "\n")
+      payload = ""
+    }
+    stdout: SplitParser {
+      onRead: function(line) {
+        var result
+        try { result = JSON.parse(line) } catch (e) { result = { ok: false, error: Model.tr("invalid_response") } }
+        root.savingContact = false
+        if (result.ok) {
+          root.lastError = ""
+          root.refreshContacts()
+        } else {
+          root.lastError = Model.clamp(result.error || Model.tr("save_contact_failed"), 160)
+        }
+      }
+    }
+    onExited: function(code, status) { root.savingContact = false }
+  }
+
   IpcHandler {
     target: "oma.sip"
 
@@ -452,6 +540,10 @@ Item {
     // node.name do PipeWire (veja `wpctl status` / `pw-cli ls Node`); vazio = padrão
     function setAudioOutput(name: string): string { return root.setAudioOutput(name) }
     function setAudioInput(name: string): string { return root.setAudioInput(name) }
+    function contacts(): string { return JSON.stringify(root.contacts) }
+    function dialContact(value: string): string { return root.dialContact(value) }
+    function addContact(name: string, uri: string): string { return root.addContact(name, uri) }
+    function removeContact(uri: string): string { return root.removeContact(uri) }
     function state(): string {
       return JSON.stringify({
         bridge: root.bridgeUp,
@@ -468,6 +560,7 @@ Item {
           secure: root.accountSecure
         },
         audio: { output: root.audioOutput, input: root.audioInput },
+        contacts: root.contacts.length,
         call: root.callState,
         peer: root.peer,
         muted: root.muted,

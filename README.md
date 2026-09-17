@@ -65,7 +65,28 @@ Dial from the command line: `omarchy-shell oma.sip dial 203`
 
 IPC methods (`omarchy-shell oma.sip <method>`): `dial <target>`, `answer`,
 `hangup`, `toggleMute`, `toggleDnd`, `reregister`, `setAudioOutput <node>`,
-`setAudioInput <node>`, `state`.
+`setAudioInput <node>`, `contacts`, `dialContact <uri|name>`,
+`addContact <name> <uri>`, `removeContact <uri>`, `state`.
+
+## Contacts
+
+The popout has a contacts panel behind the book button: saved contacts are
+listed, a click dials one, and the two fields underneath save a new one.
+Contacts live in `~/.baresip/contacts`, the file baresip reads itself.
+
+The plugin writes that file through `bridge/contacts-tool.py` because baresip
+does not persist contacts: `/addcontact` changes an in-memory list that
+`module_close` throws away (`list_flush`), and the contact module writes the file
+only when it is missing. Existing comments and `;addr-params` stay untouched, and
+a write appends or removes exactly one line.
+
+An address can be an extension (`201`), which is completed with the account's
+domain, or a full `user@host` / `sip:user@host`. The baresip contact format needs
+a host, so an extension without a configured account is rejected.
+
+baresip reads `;access=block` and `;access=allow` only at startup, so restart the
+service after editing those rules: `omarchy-shell oma.sip reregister`. Dialing
+from the panel does not depend on that: it passes the contact's URI to `dial`.
 
 ## Audio devices
 
