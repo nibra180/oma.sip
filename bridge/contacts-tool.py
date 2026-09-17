@@ -6,7 +6,14 @@ na primeira inicialização e /addcontact e /rmcontact mudam só a lista em
 memória (module_close faz list_flush). Por isso este script é o dono do
 arquivo, no mesmo padrão de account-tool/config-tool: lock exclusivo (flock),
 temp com nome aleatório (mkstemp), fsync em arquivo e diretório, os.replace
-atômico, leitura com O_NOFOLLOW (recusa symlink) e entrada limitada.
+atômico e entrada limitada.
+
+Leitura e escrita tratam symlink de forma diferente. list segue o link: o
+usuário pode gerenciar o arquivo no dotfiles, e ler pelo link não dá a um
+atacante nada que ele já não tenha (mesmo UID, diretório 0700, saída só para
+a barra do próprio usuário). add e remove recusam symlink (`islink`): um
+os.replace trocaria o link por um arquivo comum e quebraria silenciosamente o
+setup do dotfiles. Quem usa symlink edita o arquivo pelo botão Edit file.
 
 list  : imprime {"configured","contacts":[{"name","uri","params"}]}
 add   : lê {"name","uri"} do stdin e acrescenta uma linha ao final
@@ -81,6 +88,20 @@ def lock_exclusive():
 
 
 def read_lines():
+    # list segue symlinks: o arquivo pode pertencer ao dotfiles do usuário.
+    try:
+        with open(PATH, encoding="utf-8") as fh:
+            return fh.read().splitlines()
+    except FileNotFoundError:
+        return None
+    except OSError:
+        # ilegível: trata como inexistente
+        return None
+
+
+def read_lines_strict():
+    # Leitores de escrita exigem arquivo comum: recusam symlink via O_NOFOLLOW.
+    # (do_add/do_remove já barram com islink; isto é a segunda trava.)
     try:
         fd = os.open(PATH, os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC)
         with os.fdopen(fd, encoding="utf-8") as fh:
@@ -177,7 +198,7 @@ def do_add():
         if os.path.islink(PATH):
             return fail("~/.baresip/contacts is a symlink — refusing to write",
                         "~/.baresip/contacts é um symlink — gravação recusada")
-        lines = read_lines()
+        lines = read_lines_strict()
         mode = 0o600
         if lines is None:
             lines = HEADER.splitlines()
@@ -205,7 +226,7 @@ def do_remove():
         if os.path.islink(PATH):
             return fail("~/.baresip/contacts is a symlink — refusing to write",
                         "~/.baresip/contacts é um symlink — gravação recusada")
-        lines = read_lines()
+        lines = read_lines_strict()
         if lines is None:
             return fail("no contacts file", "sem arquivo de contatos")
         kept, removed = [], 0

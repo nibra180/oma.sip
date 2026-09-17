@@ -79,7 +79,9 @@ The plugin writes that file through `bridge/contacts-tool.py` because baresip
 does not persist contacts: `/addcontact` changes an in-memory list that
 `module_close` throws away (`list_flush`), and the contact module writes the file
 only when it is missing. Existing comments and `;addr-params` stay untouched, and
-a write appends or removes exactly one line.
+a write appends or removes exactly one line. Reading follows a symlink, so a
+dotfiles-managed file keeps working; writing refuses one, with an error, so the
+link is never silently replaced by a regular file.
 
 The field above the list filters as you type. Matching is fuzzy and runs over
 both name and address, so `ms` finds *Music Server* and `201` finds the contact
