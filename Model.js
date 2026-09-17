@@ -83,8 +83,10 @@ var _msg = {
   contact_invalid:       { en: "enter extension or user@host",          pt: "informe ramal ou usuario@host" },
   contact_call_tip:      { en: "Call",                                  pt: "Ligar" },
   save_contact_failed:   { en: "failed to save the contact",            pt: "falha ao salvar contato" },
-  contacts_hint:         { en: "Saved to ~/.baresip/contacts and dialled through baresip. A rule like ;access=block only applies after baresip restarts.",
-                           pt: "Salvos em ~/.baresip/contacts e discados pelo baresip. Uma regra como ;access=block só vale depois de reiniciar o baresip." },
+  contacts_search_ph:    { en: "Search contacts…",                      pt: "Buscar contatos…" },
+  contacts_no_match:     { en: "no contact matches",                    pt: "nenhum contato corresponde" },
+  contacts_hint:         { en: "Enter dials the top match. Saved to ~/.baresip/contacts; a rule like ;access=block applies after a baresip restart.",
+                           pt: "Enter liga para o primeiro resultado. Salvos em ~/.baresip/contacts; uma regra como ;access=block vale após reiniciar o baresip." },
   secure_label:          { en: "Encryption (TLS + SRTP)",              pt: "Criptografia (TLS + SRTP)" },
   secure_note:           { en: "The server must offer SIP over TLS (default port 5061; use server:port if different).",
                            pt: "O servidor precisa oferecer SIP sobre TLS (porta padrão 5061; use servidor:porta se for outra)." },
@@ -212,6 +214,69 @@ function contactUriFromInput(raw, domain) {
   var host = String(domain || "").trim()
   if (ext === "" || host === "") return ""
   return _contactUriRe.test(`sip:${ext}@${host}`) ? `sip:${ext}@${host}` : ""
+}
+
+// Fuzzy-Treffer: -1 = kein Treffer, sonst Score (höher = besser). Der Needle
+// muss als Teilfolge im Text stehen; Wortanfänge, zusammenhängende Läufe, frühe
+// Treffer und kurze Texte bekommen Boni. Leerer Needle trifft alles.
+function fuzzyScore(needle, text) {
+  var q = String(needle || "").trim().toLowerCase()
+  var t = String(text || "").toLowerCase()
+  var score = 0
+  var qi = 0
+  var prev = -2
+  var direct = 0
+  var i = 0
+
+  if (q === "") return 0
+  if (t === "") return -1
+  if (t === q) return 1000
+
+  for (i = 0; i < t.length && qi < q.length; i++) {
+    if (t.charAt(i) !== q.charAt(qi)) continue
+    score += 10
+    if (i === prev + 1) score += 10
+    if (i === 0 || /[^a-z0-9]/.test(t.charAt(i - 1))) score += 15
+    prev = i
+    qi++
+  }
+  if (qi < q.length) return -1
+
+  direct = t.indexOf(q)
+  if (direct === 0) score += 200
+  else if (direct > 0) score += 100
+  return score - Math.min(t.length, 50)
+}
+
+// Kontakte nach Relevanz: Name vor uri, Gleichstand behält die Dateireihenfolge.
+function filterContacts(contacts, query) {
+  var list = contacts || []
+  var q = String(query || "").trim()
+  var scored = []
+  var out = []
+  var i = 0
+  var k = 0
+  var c = null
+  var uri = ""
+  var name = ""
+  var s = 0
+
+  if (q === "") return list
+
+  for (i = 0; i < list.length; i++) {
+    c = list[i]
+    if (!c) continue
+    uri = String(c.uri || "")
+    name = String(c.name || "")
+    s = Math.max(fuzzyScore(q, name),
+                 fuzzyScore(q, `${uri} ${name}`),
+                 fuzzyScore(q, uri) - 10)
+    if (s >= 0) scored.push({ contact: c, score: s, order: i })
+  }
+  scored.sort(function(a, b) { return b.score - a.score || a.order - b.order })
+
+  for (k = 0; k < scored.length; k++) out.push(scored[k].contact)
+  return out
 }
 
 function fmtDuration(totalSeconds) {

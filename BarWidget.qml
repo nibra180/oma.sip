@@ -38,6 +38,10 @@ BarWidget {
   property bool showAccount: false
   property bool showAudio: false
   property bool showContacts: false
+  // Suchtext der Kontaktliste. Hängt am Suchfeld, damit Leeren per Escape die
+  // volle Liste zurückbringt, und filtert mit Model.filterContacts.
+  readonly property string contactQuery: contactSearchField.text
+  readonly property var visibleContacts: Model.filterContacts(root.sip ? root.sip.contacts : [], contactQuery)
   // Discador/controles/DND só aparecem quando nenhum sub-painel está aberto.
   readonly property bool mainView: !showAccount && !showAudio && !showContacts
 
@@ -109,9 +113,16 @@ BarWidget {
   function preferredField() {
     if (!popupOpen) return null
     if (showAccount) return serverField
-    if (showContacts) return contactNameField
+    if (showContacts) return contactSearchField
     if (registered && callState === "idle") return dialField
     return null
+  }
+
+  function dialFirstContact() {
+    if (!sip) return
+    var list = visibleContacts
+    if (!list || list.length === 0) return
+    sip.dialContact(list[0].uri)
   }
 
   // Reaplica o foco após o layout assentar. O KeyboardPanel só foca o
@@ -206,8 +217,8 @@ BarWidget {
     // contornar um bug de foco OnDemand multi-monitor do Omarchy 4.0.1,
     // corrigido em atualização do Omarchy (2026-08-28). O override quebrava
     // o fechar-ao-clicar em outro monitor — não reintroduzir.
-    contentWidth: popup.fittedContentWidth(Style.space(300))
-    contentHeight: popup.fittedContentHeight(column.implicitHeight, Style.space(640))
+    contentWidth: popup.fittedContentWidth(Style.space(380))
+    contentHeight: popup.fittedContentHeight(column.implicitHeight, Style.space(760))
 
     PanelKeyCatcher {
       id: keyCatcher
@@ -215,6 +226,7 @@ BarWidget {
       blocked: serverField.activeFocus || usernameField.activeFocus || domainField.activeFocus
         || loginField.activeFocus || passwordField.activeFocus || dialField.activeFocus
         || contactNameField.activeFocus || contactUriField.activeFocus
+        || contactSearchField.activeFocus
         || outputDropdown.popupOpen || inputDropdown.popupOpen
       onCloseRequested: root.popupOpen = false
       // Se o foco cair no keyCatcher com um campo visível (ex.: clique em área
@@ -273,20 +285,33 @@ BarWidget {
           }
         }
 
-        // ---- Contatos (lista + cadastro) ----
+        // ---- Contatos (busca + lista + cadastro) ----
         Column {
           width: parent.width
           spacing: Style.space(8)
           visible: root.showContacts
 
+          TextField {
+            id: contactSearchField
+            width: parent.width
+            foreground: root.bar.foreground
+            placeholderText: Model.tr("contacts_search_ph")
+            onAccepted: root.dialFirstContact()
+            // Escape leert erst die Suche und schließt erst dann das Popout.
+            Keys.onEscapePressed: {
+              if (text !== "") text = ""
+              else root.popupOpen = false
+            }
+          }
+
           Flickable {
             id: contactScroll
             width: parent.width
-            height: visible ? Math.min(contactColumn.implicitHeight, Style.space(200)) : 0
+            height: visible ? Math.min(contactColumn.implicitHeight, Style.space(340)) : 0
             contentHeight: contactColumn.implicitHeight
             clip: true
             boundsBehavior: Flickable.StopAtBounds
-            visible: (root.sip ? root.sip.contacts.length : 0) > 0
+            visible: root.visibleContacts.length > 0
 
             Column {
               id: contactColumn
@@ -294,7 +319,7 @@ BarWidget {
               spacing: Style.space(4)
 
               Repeater {
-                model: root.sip ? root.sip.contacts : []
+                model: root.visibleContacts
 
                 delegate: Row {
                   id: contactRow
@@ -330,8 +355,8 @@ BarWidget {
 
           Text {
             width: parent.width
-            visible: !(root.sip && root.sip.contacts.length > 0)
-            text: Model.tr("contacts_empty")
+            visible: root.visibleContacts.length === 0
+            text: Model.tr(root.sip && root.sip.contacts.length > 0 ? "contacts_no_match" : "contacts_empty")
             color: Qt.darker(root.bar.foreground, 1.5)
             font.family: root.bar.fontFamily
             font.pixelSize: Style.font.caption

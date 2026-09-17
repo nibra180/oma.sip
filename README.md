@@ -80,6 +80,11 @@ does not persist contacts: `/addcontact` changes an in-memory list that
 only when it is missing. Existing comments and `;addr-params` stay untouched, and
 a write appends or removes exactly one line.
 
+The field above the list filters as you type. Matching is fuzzy and runs over
+both name and address, so `ms` finds *Music Server* and `201` finds the contact
+whose address carries that extension. Enter dials the top match, Escape clears
+the search first and closes the popout on the second press.
+
 An address can be an extension (`201`), which is completed with the account's
 domain, or a full `user@host` / `sip:user@host`. The baresip contact format needs
 a host, so an extension without a configured account is rejected.
