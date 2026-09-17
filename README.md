@@ -71,8 +71,9 @@ IPC methods (`omarchy-shell oma.sip <method>`): `dial <target>`, `answer`,
 ## Contacts
 
 The popout has a contacts panel behind the book button: saved contacts are
-listed, a click dials one, and the two fields underneath save a new one.
-Contacts live in `~/.baresip/contacts`, the file baresip reads itself.
+listed with their address, the phone button on the row dials one, the trash
+button removes it, and the two fields underneath save a new one. Contacts live
+in `~/.baresip/contacts`, the file baresip reads itself.
 
 The plugin writes that file through `bridge/contacts-tool.py` because baresip
 does not persist contacts: `/addcontact` changes an in-memory list that

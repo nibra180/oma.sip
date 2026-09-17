@@ -321,31 +321,62 @@ BarWidget {
               Repeater {
                 model: root.visibleContacts
 
-                delegate: Row {
+                delegate: Item {
                   id: contactRow
                   required property var modelData
                   width: contactColumn.width
-                  height: contactDial.implicitHeight
-                  spacing: Style.space(6)
+                  height: Math.max(Style.space(34), contactLabels.implicitHeight + Style.space(6))
 
-                  Button {
-                    id: contactDial
-                    width: parent.width - contactDelete.width - Style.space(6)
-                    leftAlign: true
-                    text: Model.contactLabel(contactRow.modelData)
-                    tooltipText: Model.clamp(contactRow.modelData.uri, 96)
-                    bordered: true
+                  Column {
+                    id: contactLabels
+                    anchors.left: parent.left
+                    anchors.verticalCenter: parent.verticalCenter
+                    width: parent.width - contactCall.width - contactDelete.width - Style.space(14)
+                    spacing: 0
+
+                    Text {
+                      width: parent.width
+                      text: Model.contactLabel(contactRow.modelData)
+                      textFormat: Text.PlainText
+                      color: root.bar.foreground
+                      font.family: root.bar.fontFamily
+                      font.pixelSize: Style.font.bodySmall
+                      elide: Text.ElideRight
+                    }
+
+                    Text {
+                      width: parent.width
+                      text: Model.clamp(contactRow.modelData.uri, 64)
+                      textFormat: Text.PlainText
+                      color: Qt.darker(root.bar.foreground, 1.5)
+                      font.family: root.bar.fontFamily
+                      font.pixelSize: Style.font.caption
+                      elide: Text.ElideMiddle
+                    }
+                  }
+
+                  PanelActionButton {
+                    id: contactCall
+                    anchors.right: contactDelete.left
+                    anchors.rightMargin: Style.space(4)
+                    anchors.verticalCenter: parent.verticalCenter
+                    iconText: "󰏲"
+                    tooltipText: Model.tr("contact_call_tip")
                     foreground: root.bar.foreground
-                    accent: Color.accent
+                    hoverColor: Color.accent
+                    fontFamily: root.bar.fontFamily
                     onClicked: if (root.sip) root.sip.dialContact(contactRow.modelData.uri)
                   }
 
                   PanelActionButton {
                     id: contactDelete
+                    anchors.right: parent.right
+                    anchors.verticalCenter: parent.verticalCenter
                     iconText: "󰆴"
                     tooltipText: Model.tr("contact_delete_tip")
                     foreground: root.bar.foreground
                     hoverColor: root.bar.urgent
+                    fontFamily: root.bar.fontFamily
                     onClicked: if (root.sip) root.sip.removeContact(contactRow.modelData.uri)
                   }
                 }
